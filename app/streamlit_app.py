@@ -1,47 +1,81 @@
 import streamlit as st
 from src.inference import predict, load_model
 
-st.set_page_config(page_title="P8 - Scoring", layout="centered")
-st.title("P8 – Application de scoring")
-st.caption("Modèle chargé une seule fois • Déploiement Docker sur Hugging Face Spaces")
+# ---------- UI CONFIG ----------
+st.set_page_config(page_title="Scoring Crédit", layout="centered")
+st.title("Scoring client – Demande de crédit")
+st.caption("Démo MLOps • Streamlit + Docker • Déploiement Hugging Face (sync depuis GitHub)")
+
+# ---------- BUSINESS MAPPING ----------
+# Convention standard : 0 = solvable (accordable), 1 = défaut/risque (non accordable)
+LABEL_MAPPING = {
+    0: "Client solvable – prêt accordable",
+    1: "Client à risque – prêt non accordable",
+}
+
 
 @st.cache_resource
-def warmup():
-    # force le chargement du modèle au démarrage du container
+def warmup_model():
+    """Charge le modèle une seule fois au démarrage du conteneur."""
     load_model()
     return True
 
-warmup()
+
+# Warmup
+warmup_model()
 st.success("Modèle chargé ✅")
 
-st.subheader("Entrée texte")
+# ---------- INPUT ----------
+st.subheader("Entrée")
+st.write(
+    "Colle ici les informations nécessaires à l’évaluation (format texte). "
+    "Exemple : résumé du dossier, contexte, éléments saillants."
+)
+
 text = st.text_area(
-    "Saisis le texte à scorer",
-    placeholder="Colle ici le texte (ex: description, commentaire, etc.)",
-    height=180,
+    "Texte à analyser",
+    placeholder="Ex: Demande de crédit auto 15k€, CDI depuis 3 ans, charges mensuelles..., historique...",
+    height=200,
 )
 
 col1, col2 = st.columns([1, 2])
 with col1:
-    do_predict = st.button("Prédire", type="primary")
+    run = st.button("Calculer le score", type="primary")
 with col2:
     st.write("")
 
-if do_predict:
+# ---------- PREDICT ----------
+if run:
     if not text.strip():
-        st.warning("Merci de saisir un texte avant de lancer la prédiction.")
+        st.warning("Merci de saisir un texte avant de lancer le scoring.")
     else:
         try:
             label, score = predict(text)
-            st.markdown("### Résultat")
-            st.write(f"**Classe prédite :** {label}")
-            st.write(f"**Score / probabilité :** {score:.4f}")
+
+            # Ton predict renvoie (label, score). Ici label est 0/1.
+            label_int = int(label)
+
+            st.markdown("### Résultat du scoring")
+            st.write(f"**Décision :** {LABEL_MAPPING.get(label_int, str(label_int))}")
+
+            # Interprétation du score :
+            # - si label=1 : score = proba de défaut (risque)
+            # - si label=0 : score = proba de solvabilité
+            if label_int == 1:
+                st.write(f"**Probabilité de défaut estimée :** {score:.2%}")
+                st.warning("Risque élevé détecté (classe 1).")
+            else:
+                st.write(f"**Probabilité de solvabilité estimée :** {score:.2%}")
+                st.success("Risque faible détecté (classe 0).")
+
         except Exception as e:
-            st.error("Erreur pendant la prédiction.")
+            st.error("Erreur pendant le calcul du score.")
             st.exception(e)
 
-with st.expander("Détails techniques"):
+# ---------- EXPLAIN ----------
+with st.expander("Interprétation (métier)"):
     st.write(
-        "- La fonction `predict(text)` vient de `src/inference.py`.\n"
-        "- Le modèle est chargé une seule fois au démarrage grâce à `st.cache_resource`."
+        "- `predict()` renvoie une **classe binaire** : 0 (solvable) ou 1 (risque/défaut).\n"
+        "- Si le modèle expose `predict_proba()`, on récupère une **probabilité** (score) associée à la classe prédite.\n"
+        "- En scoring crédit, la **décision** peut dépendre d’un **seuil métier** ajustable (coût FP/FN, politique risque)."
     )
