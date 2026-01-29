@@ -12,7 +12,7 @@ jobs:
             - name: Checkout repository
               uses: actions/checkout@v4
               with:
-                  fetch-depth: 0
+                  fetch-depth: 0 # important pour pousser proprement
 
             - name: Push to Hugging Face
               env:
@@ -20,23 +20,15 @@ jobs:
                   HF_USERNAME: ${{ secrets.HF_USERNAME }}
                   HF_SPACE: ${{ secrets.HF_SPACE }}
               run: |
-                  set -euo pipefail
+                  set -e
 
-                  # Fail fast if secrets are missing
-                  [ -n "${HF_TOKEN}" ] || echo "HF_TOKEN is missing"
-                  [ -n "${HF_USERNAME}" ] || echo "HF_USERNAME is missing"
-                  [ -n "${HF_SPACE}" ] || echo "HF_SPACE is missing"
-                  if [ -z "${HF_TOKEN}" ] || [ -z "${HF_USERNAME}" ] || [ -z "${HF_SPACE}" ]; then
-                    echo "Missing HF secrets. Ensure HF_TOKEN, HF_USERNAME, HF_SPACE are set in GitHub Secrets."
-                    exit 1
-                  fi
-
+                  # Configure git identity for the bot
                   git config user.name "github-actions[bot]"
                   git config user.email "github-actions[bot]@users.noreply.github.com"
 
+                  # Add Hugging Face remote (authenticated)
                   HF_URL="https://${HF_USERNAME}:${HF_TOKEN}@huggingface.co/spaces/${HF_USERNAME}/${HF_SPACE}.git"
+                  git remote add hf "${HF_URL}" || git remote set-url hf "${HF_URL}"
 
-                  git remote remove hf 2>/dev/null || true
-                  git remote add hf "${HF_URL}"
-
-                  git push hf HEAD:main --force-with-lease
+                  # Push main to HF main (force-with-lease avoids accidental overwrites)
+                  git push hf main:main --force-with-lease
