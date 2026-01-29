@@ -45,3 +45,7 @@ data/tmp/
 # Secrets
 .env
 .env.*
+
+!src/models/
+!src/models/model.joblib
+!src/models/*.joblib
