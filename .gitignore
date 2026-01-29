@@ -49,3 +49,7 @@ data/tmp/
 !src/models/
 !src/models/model.joblib
 !src/models/*.joblib
+
+# Allow model artifact for deployment
+!src/models/
+!src/models/*.joblib
