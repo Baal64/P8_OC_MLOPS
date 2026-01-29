@@ -7,7 +7,10 @@ _MODEL: Any | None = None
 
 
 def _artifact_path() -> pathlib.Path:
-    return pathlib.Path(__file__).resolve().parents[1] / "models" / "model.joblib"
+    # src/inference.py -> parents[0]=src, parents[1]=repo root
+    repo_root = pathlib.Path(__file__).resolve().parents[1]
+    return repo_root / "src" / "models" / "model.joblib"
+
 
 
 def load_model() -> Any:
