@@ -52,6 +52,19 @@ P8_OC_MLOPS/
 
 ---
 
+## 🚀 Déploiement (Hugging Face Spaces)
+
+L’application est déployée sur **Hugging Face Spaces** via un **Space Docker**.
+
+La synchronisation est automatisée :
+- **GitHub** est la source de vérité.
+- Une **GitHub Action** pousse automatiquement le code vers le Space Hugging Face à chaque `push` sur la branche `main`.
+- Le Space Hugging Face reconstruit et redéploie l’application automatiquement après chaque synchronisation.
+
+> Les informations sensibles (token Hugging Face) sont gérées via **GitHub Secrets**.
+
+---
+
 ## 🚀 Avancement du projet
 
 - [x] Initialisation du dépôt et de la structure
