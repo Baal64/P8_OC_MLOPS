@@ -23,6 +23,14 @@ jobs:
                   set -euo pipefail
 
                   # Fail fast if secrets are missing
+                  [ -n "${HF_TOKEN}" ] || echo "HF_TOKEN is missing"
+                  [ -n "${HF_USERNAME}" ] || echo "HF_USERNAME is missing"
+                  [ -n "${HF_SPACE}" ] || echo "HF_SPACE is missing"
+
+                  if [ -z "${HF_TOKEN}" ] || [ -z "${HF_USERNAME}" ] || [ -z "${HF_SPACE}" ]; then
+                    exit 1
+                  fi
+
                   if [ -z "${HF_TOKEN}" ] || [ -z "${HF_USERNAME}" ] || [ -z "${HF_SPACE}" ]; then
                     echo "Missing HF secrets. Ensure HF_TOKEN, HF_USERNAME, HF_SPACE are set in GitHub Secrets."
                     exit 1
