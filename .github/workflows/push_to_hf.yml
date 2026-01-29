@@ -20,15 +20,20 @@ jobs:
                   HF_USERNAME: ${{ secrets.HF_USERNAME }}
                   HF_SPACE: ${{ secrets.HF_SPACE }}
               run: |
-                  set -e
+                  set -euo pipefail
 
-                  # Configure git identity for the bot
+                  # Fail fast if secrets are missing
+                  if [ -z "${HF_TOKEN}" ] || [ -z "${HF_USERNAME}" ] || [ -z "${HF_SPACE}" ]; then
+                    echo "Missing HF secrets. Ensure HF_TOKEN, HF_USERNAME, HF_SPACE are set in GitHub Secrets."
+                    exit 1
+                  fi
+
                   git config user.name "github-actions[bot]"
                   git config user.email "github-actions[bot]@users.noreply.github.com"
 
-                  # Add Hugging Face remote (authenticated)
                   HF_URL="https://${HF_USERNAME}:${HF_TOKEN}@huggingface.co/spaces/${HF_USERNAME}/${HF_SPACE}.git"
-                  git remote add hf "${HF_URL}" || git remote set-url hf "${HF_URL}"
 
-                  # Push main to HF main (force-with-lease avoids accidental overwrites)
-                  git push hf main:main --force-with-lease
+                  git remote remove hf 2>/dev/null || true
+                  git remote add hf "${HF_URL}"
+
+                  git push hf HEAD:main --force-with-lease
