@@ -1,3 +1,12 @@
+---
+title: P8 OC MLOps - Scoring
+emoji: 🏦
+colorFrom: blue
+colorTo: green
+sdk: docker
+pinned: false
+---
+
 # Projet 8 – Mise en production d’un modèle de scoring (MLOps)
 
 Ce projet s’inscrit dans le cadre de la formation **Data Scientist – Machine Learning** d’OpenClassrooms.  
