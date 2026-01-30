@@ -78,6 +78,15 @@ def show_speedometer(p_default: float, threshold: float = 0.5) -> None:
     st.plotly_chart(fig, use_container_width=True)
 
 
+def risk_level(p: float) -> tuple[str, str]:
+    # p = probabilité de défaut entre 0 et 1
+    if p < 0.30:
+        return "Risque faible", "success"
+    if p < 0.60:
+        return "Risque modéré", "warning"
+    return "Risque élevé", "error"
+
+
 # Warmup
 warmup_model()
 st.success("Modèle chargé ✅")
@@ -130,7 +139,19 @@ with tab_scoring:
                 # Jauge vert -> rouge
                 show_speedometer(p_default, threshold=threshold)
 
+                level, tone = risk_level(p_default)
+
+                if tone == "success":
+                    st.success(f"✅ {level}")
+                elif tone == "warning":
+                    st.warning(f"⚠️ {level}")
+                else:
+                    st.error(f"⛔ {level}")
+
                 st.write(f"**Probabilité de défaut estimée :** {p_default:.2%}")
+
+                decision = "REFUS (risque élevé)" if p_default >= threshold else "ACCORD (risque acceptable)"
+                st.info(f"Décision selon le seuil {threshold:.2f} : **{decision}**")
 
             except Exception as e:
                 st.error("Erreur pendant le calcul du score.")
