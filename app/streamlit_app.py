@@ -29,10 +29,6 @@ def warmup_model():
 
 
 def show_speedometer(p_default: float, threshold: float = 0.5) -> None:
-    """
-    p_default: probabilité de défaut entre 0 et 1
-    threshold: seuil métier entre 0 et 1
-    """
     p_default = max(0.0, min(1.0, float(p_default)))
     threshold = max(0.0, min(1.0, float(threshold)))
 
@@ -43,42 +39,32 @@ def show_speedometer(p_default: float, threshold: float = 0.5) -> None:
             number={"suffix": "%", "font": {"size": 34}},
             title={"text": "Risque de défaut", "font": {"size": 18}},
             gauge={
-                # forme "compteur"
                 "shape": "angular",
                 "axis": {
                     "range": [0, 100],
                     "tickmode": "array",
                     "tickvals": [0, 20, 40, 60, 80, 100],
-                    "ticktext": ["0", "20", "40", "60", "80", "100"],
-                    "tickwidth": 1,
-                    "tickcolor": "gray",
                 },
-                # “aiguille” / indicateur (barre)
-                "bar": {"color": "#0b1f2a", "thickness": 0.25},
-                # segments colorés (rouge -> vert)
+                # valeur (barre sombre) = risque
+                "bar": {"color": "#0b1f2a", "thickness": 0.40},
                 "steps": [
-                    {"range": [0, 20], "color": "#1bb55c"},   # vert
-                    {"range": [20, 40], "color": "#7ed321"},  # vert clair
-                    {"range": [40, 60], "color": "#f8e71c"},  # jaune
-                    {"range": [60, 80], "color": "#f5a623"},  # orange
-                    {"range": [80, 100], "color": "#d0021b"}, # rouge
+                    {"range": [0, 20], "color": "#1bb55c"},
+                    {"range": [20, 40], "color": "#7ed321"},
+                    {"range": [40, 60], "color": "#f8e71c"},
+                    {"range": [60, 80], "color": "#f5a623"},
+                    {"range": [80, 100], "color": "#d0021b"},
                 ],
-                # seuil métier (trait noir)
+                # seuil = repère discret
                 "threshold": {
-                    "line": {"color": "black", "width": 5},
-                    "thickness": 0.85,
+                    "line": {"color": "black", "width": 2},
+                    "thickness": 0.25,
                     "value": threshold * 100,
                 },
             },
         )
     )
 
-    # Look & feel plus proche de ton exemple (demi-jauge clean)
-    fig.update_layout(
-        height=330,
-        margin=dict(l=20, r=20, t=55, b=10),
-    )
-
+    fig.update_layout(height=330, margin=dict(l=20, r=20, t=55, b=10))
     st.plotly_chart(fig, use_container_width=True)
 
 
@@ -142,7 +128,7 @@ with tab_scoring:
 
                 # Jauge vert -> rouge
                 show_speedometer(p_default, threshold=threshold)
-
+                st.caption(f"Barre sombre = risque estimé. Repère noir = seuil ({threshold:.2f}).")
                 level, tone = risk_level(p_default)
 
                 if tone == "success":
