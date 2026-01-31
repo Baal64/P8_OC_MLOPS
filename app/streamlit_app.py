@@ -3,6 +3,10 @@ import plotly.graph_objects as go
 
 from src.inference import predict, load_model
 
+import json
+from pathlib import Path
+import pandas as pd
+
 # ---------- UI CONFIG ----------
 st.set_page_config(page_title="Scoring Crédit", layout="centered")
 st.title("Scoring client – Demande de crédit")
@@ -167,11 +171,48 @@ with tab_scoring:
 
 # -------------------- TAB: MONITORING --------------------
 with tab_monitoring:
-    st.subheader("Monitoring (à compléter)")
-    st.write(
-        "Prochaine évolution : journaliser les prédictions (classe, probabilité, latence) "
-        "et afficher ici des statistiques (volume, distribution des scores, etc.)."
-    )
+    st.subheader("Monitoring")
+
+    log_path = Path("logs") / "predictions.jsonl"
+
+    if not log_path.exists():
+        st.info("Aucun log pour l’instant. Lance quelques prédictions dans l’onglet Scoring.")
+    else:
+        rows = []
+        with log_path.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rows.append(json.loads(line))
+                except Exception:
+                    continue
+
+        if not rows:
+            st.info("Logs vides ou illisibles.")
+        else:
+            df = pd.DataFrame(rows)
+
+            st.metric("Nombre de prédictions", len(df))
+
+            # Distribution classes
+            if "label" in df.columns:
+                counts = df["label"].value_counts()
+                st.write("**Répartition des classes**")
+                st.bar_chart(counts)
+
+            # Stats score/latence
+            if "score" in df.columns:
+                st.write("**Score (dernières prédictions)**")
+                st.line_chart(df["score"])
+
+            if "latency_ms" in df.columns:
+                st.write("**Latence (ms)**")
+                st.line_chart(df["latency_ms"])
+
+            with st.expander("Voir les logs (aperçu)"):
+                st.dataframe(df.tail(50))
 
 
 # -------------------- TAB: ABOUT --------------------

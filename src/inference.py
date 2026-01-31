@@ -3,7 +3,24 @@ import pathlib
 from typing import Tuple, Any
 import joblib
 
+import json
+import time
+from datetime import datetime, timezone
+
+
 _MODEL: Any | None = None
+
+def _log_event(event: dict) -> None:
+    """Log JSONL (1 event par ligne). Fail-safe: ne casse jamais la prédiction."""
+    try:
+        log_dir = pathlib.Path(__file__).resolve().parents[1] / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_file = log_dir / "predictions.jsonl"
+        with log_file.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(event, ensure_ascii=False) + "\n")
+    except Exception:
+        # Ne jamais faire planter l'app à cause du logging
+        pass
 
 
 def _artifact_path() -> pathlib.Path:
@@ -152,13 +169,14 @@ def _coerce_input(model: Any, text: str):
 
 
 def predict(text: str) -> Tuple[str, float]:
+    t0 = time.perf_counter()
     model = load_model()
 
     X = _coerce_input(model, text)
 
+    # --- Prédiction + score ---
     if hasattr(model, "predict_proba"):
         probs = model.predict_proba(X)[0]
-        # supporte list/tuple/ndarray
         if isinstance(probs, (list, tuple)):
             idx = max(range(len(probs)), key=lambda i: probs[i])
             best = float(probs[idx])
@@ -176,7 +194,24 @@ def predict(text: str) -> Tuple[str, float]:
                 classes = model.named_steps["clf"].classes_
             except Exception:
                 raise RuntimeError("Impossible de retrouver classes_ du modèle.")
-        return str(classes[idx]), best
+        label = str(classes[idx])
+        score = best
+    else:
+        label = str(model.predict(X)[0])
+        score = 1.0
 
-    pred = model.predict(X)[0]
-    return str(pred), 1.0
+    latency_ms = (time.perf_counter() - t0) * 1000.0
+
+    # --- Logging JSONL ---
+    _log_event(
+        {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "input_len": len(text) if text is not None else 0,
+            "label": label,
+            "score": score,
+            "latency_ms": round(latency_ms, 3),
+        }
+    )
+
+    return label, score
+

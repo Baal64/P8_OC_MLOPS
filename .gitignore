@@ -53,3 +53,6 @@ data/tmp/
 # Allow model artifact for deployment
 !src/models/
 !src/models/*.joblib
+
+logs/*.log
+logs/*.jsonl
