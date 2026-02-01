@@ -5,7 +5,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from src.inference import expected_features, load_model, predict_proba_default, score_one_client
+from src.inference import expected_features, load_model, predict_proba_default
 
 # ---------- UI CONFIG ----------
 st.set_page_config(page_title="Scoring Crédit", layout="centered")
@@ -84,73 +84,71 @@ with tab_scoring:
     sub_form, sub_csv = st.tabs(["🧍 1 client (formulaire)", "📄 Batch (CSV)"])
 
     # ---- Formulaire 1 client ----
-    with sub_form:
-        st.write(
-            "Saisie métier pour **1 client**. "
-            "On construit un DataFrame aligné sur les features d'entraînement."
-        )
+with sub_form:
+    st.write(
+        "Formulaire complet (**27 features**) : les champs sont générés automatiquement à partir "
+        "des features d'entraînement du modèle. "
+        "Le DataFrame est ensuite envoyé avec l'ordre exact attendu."
+    )
 
-        feats = expected_features()
+    feats = expected_features()
+    threshold = st.slider(
+        "Seuil métier (probabilité de défaut)",
+        min_value=0.0,
+        max_value=1.0,
+        value=0.50,
+        step=0.01,
+        help="Décision = REFUS si p(défaut) ≥ seuil, sinon ACCORD.",
+    )
 
-        # ⚠️ IMPORTANT :
-        # Si ton modèle a beaucoup de features, on ne peut pas toutes les saisir à la main.
-        # On remplit donc les features non saisies avec 0 par défaut (POC).
-        # Le mode CSV (ci-dessous) est le mode 'réaliste' si tu as beaucoup de colonnes.
+    st.divider()
+    st.caption("Astuce : tu peux laisser des valeurs par défaut et ne renseigner que les champs clés pour la démo.")
 
-        st.info(
-            f"Le modèle attend {len(feats)} features. "
-            "Ce formulaire est un POC : les champs non saisis sont remplis à 0."
-        )
+    col_left, col_right = st.columns(2)
 
-        # Champs métier (à adapter aux variables réelles de ton dataset)
-        # -> Mets ici les features les plus parlantes côté métier
-        # -> Si une feature n'existe pas dans feats, on l'ignore proprement
-        def set_if_exists(d, key, value):
-            if key in feats:
-                d[key] = value
+    # Valeurs par défaut (tu peux les adapter)
+    values = {}
 
-        user = {}
+    for i, c in enumerate(feats):
+        target_col = col_left if i % 2 == 0 else col_right
 
-        # Exemples courants (Home Credit-like). Adapte si tes colonnes diffèrent.
-        set_if_exists(user, "AMT_INCOME_TOTAL", st.number_input("Revenu annuel", min_value=0.0, value=50000.0, step=1000.0))
-        set_if_exists(user, "AMT_CREDIT", st.number_input("Montant du crédit", min_value=0.0, value=15000.0, step=500.0))
-        set_if_exists(user, "AMT_ANNUITY", st.number_input("Mensualité", min_value=0.0, value=300.0, step=10.0))
-        set_if_exists(user, "DAYS_BIRTH", st.number_input("Âge (jours négatifs si Home Credit)", value=-12000))
-        set_if_exists(user, "DAYS_EMPLOYED", st.number_input("Ancienneté emploi (jours, souvent négatif)", value=-1000))
-        set_if_exists(user, "CNT_CHILDREN", st.number_input("Nombre d'enfants", min_value=0, value=0, step=1))
+        with target_col:
+            if any(k in c.upper() for k in ["FLAG", "IND", "IS_", "HAS_"]) or c.upper().endswith("_YN"):
+                values[c] = st.number_input(c, value=0, step=1)
+            else:
+                values[c] = st.number_input(c, value=0.0)
 
-        # Construire le dict complet strict (defaults)
-        full = {c: 0 for c in feats}
-        full.update(user)
 
-        if st.button("Calculer le score", type="primary"):
-            try:
-                res = score_one_client(full, threshold=threshold, log=True)
-                p_default = float(res["p_default"])
-                decision = res["decision"]
+    if st.button("Calculer le score", type="primary"):
+        try:
+            df = pd.DataFrame([values])[feats]  # ordre strict
+            p_defaults = predict_proba_default(df)
+            p_default = float(p_defaults.iloc[0])
 
-                st.markdown("### Résultat")
-                st.write(f"**Décision (seuil {threshold:.2f}) :** {decision}")
+            decision = "REFUS" if p_default >= threshold else "ACCORD"
 
-                show_speedometer(p_default, threshold=threshold)
+            st.markdown("### Résultat")
+            st.write(f"**Décision (seuil {threshold:.2f}) :** {decision}")
 
-                level, tone = risk_level(p_default)
-                if tone == "success":
-                    st.success(f"✅ {level}")
-                elif tone == "warning":
-                    st.warning(f"⚠️ {level}")
-                else:
-                    st.error(f"⛔ {level}")
+            show_speedometer(p_default, threshold=threshold)
 
-                st.write(f"**Probabilité de défaut estimée :** {p_default:.2%}")
-                st.caption("Barre sombre = risque estimé • Trait noir = seuil de décision")
+            level, tone = risk_level(p_default)
+            if tone == "success":
+                st.success(f"✅ {level}")
+            elif tone == "warning":
+                st.warning(f"⚠️ {level}")
+            else:
+                st.error(f"⛔ {level}")
 
-                with st.expander("Aperçu des features envoyées au modèle (1 ligne)"):
-                    st.dataframe(pd.DataFrame([full])[feats].head(1))
+            st.write(f"**Probabilité de défaut estimée :** {p_default:.2%}")
+            st.caption("Barre sombre = risque estimé • Trait noir = seuil de décision")
 
-            except Exception as e:
-                st.error("Erreur pendant le scoring (alignement features / types).")
-                st.exception(e)
+            with st.expander("DataFrame envoyé au modèle (1 ligne)"):
+                st.dataframe(df)
+
+        except Exception as e:
+            st.error("Erreur pendant le scoring (alignement features / types).")
+            st.exception(e)
 
     # ---- Batch CSV ----
     with sub_csv:
