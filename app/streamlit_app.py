@@ -15,6 +15,16 @@ st.caption("Démo MLOps • Streamlit + Docker • Déploiement Hugging Face (sy
 # Mapping UI -> modèle (num pipeline)
 GENDER_MAP = {"F": 0, "M": 1}
 
+EDU_MAP = {
+    "Bac": 0,
+    "Bac+2": 1,
+    "Licence": 2,
+    "Master": 3,
+    "Doctorat": 4,
+    "Autre": 5,
+}
+
+
 
 @st.cache_resource
 def warmup():
@@ -70,6 +80,19 @@ def key_for(name: str) -> str:
 
 def as_int_bool(x: bool) -> int:
     return 1 if x else 0
+
+@st.cache_resource
+def get_feature_groups():
+    model = load_model()
+    ct = model.named_steps["prep"]
+    num_cols = []
+    cat_cols = []
+    for name, _, cols in ct.transformers:
+        if name == "num":
+            num_cols = list(cols)
+        elif name == "cat":
+            cat_cols = list(cols)
+    return num_cols, cat_cols
 
 
 # Warmup model
@@ -137,12 +160,13 @@ with tab_scoring:
             )
 
             st.markdown("### Éducation")
-            values["niveau_education"] = st.selectbox(
+            edu_ui = st.selectbox(
                 "Niveau d’éducation",
                 ["Bac", "Bac+2", "Licence", "Master", "Doctorat", "Autre"],
-                index=2,
-                key=key_for("niveau_education"),
+                index=3,  # Master par défaut si tu veux
+                key=key_for("niveau_education_ui"),
             )
+            values["niveau_education"] = EDU_MAP[edu_ui]
             values["domaine_etude"] = str(st.text_input("Domaine d’étude", value="Général", key=key_for("domaine_etude")))
 
         # Colonne droite
@@ -226,6 +250,14 @@ with tab_scoring:
 
         if st.button("Calculer le score", type="primary", key="btn_score_single"):
             try:
+                num_cols, cat_cols = get_feature_groups()
+
+                for c in num_cols:
+                    df[c] = pd.to_numeric(df[c], errors="raise")
+
+                for c in cat_cols:
+                    df[c] = df[c].astype(str)
+
                 p_default = float(predict_proba_default(df).iloc[0])
                 decision = "REFUS" if p_default >= threshold else "ACCORD"
 
