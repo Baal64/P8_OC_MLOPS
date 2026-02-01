@@ -1,38 +1,25 @@
-import streamlit as st
-import plotly.graph_objects as go
-
-from src.inference import predict, load_model
-
 import json
 from pathlib import Path
+
 import pandas as pd
+import plotly.graph_objects as go
+import streamlit as st
+
+from src.inference import expected_features, load_model, predict_proba_default, score_one_client
 
 # ---------- UI CONFIG ----------
 st.set_page_config(page_title="Scoring Crédit", layout="centered")
 st.title("Scoring client – Demande de crédit")
 st.caption("Démo MLOps • Streamlit + Docker • Déploiement Hugging Face (sync depuis GitHub)")
 
-# ---------- BUSINESS MAPPING ----------
-LABEL_MAPPING = {
-    0: "Client solvable – prêt accordable",
-    1: "Client à risque – prêt non accordable",
-}
-
-# Exemple de seuil métier (à ajuster si tu en as un)
-DEFAULT_THRESHOLD = 0.50
-
 
 @st.cache_resource
-def warmup_model():
+def warmup():
     load_model()
     return True
 
 
 def show_speedometer(p_default: float, threshold: float = 0.5) -> None:
-    """
-    p_default: probabilité de défaut entre 0 et 1
-    threshold: seuil métier entre 0 et 1
-    """
     p_default = max(0.0, min(1.0, float(p_default)))
     threshold = max(0.0, min(1.0, float(threshold)))
 
@@ -43,48 +30,30 @@ def show_speedometer(p_default: float, threshold: float = 0.5) -> None:
             number={"suffix": "%", "font": {"size": 34}},
             title={"text": "Risque de défaut", "font": {"size": 18}},
             gauge={
-                # forme "compteur"
                 "shape": "angular",
-                "axis": {
-                    "range": [0, 100],
-                    "tickmode": "array",
-                    "tickvals": [0, 20, 40, 60, 80, 100],
-                    "ticktext": ["0", "20", "40", "60", "80", "100"],
-                    "tickwidth": 1,
-                    "tickcolor": "gray",
-                },
-                # “aiguille” / indicateur (barre)
-                "bar": {"color": "#0b1f2a", "thickness": 0.40},
-                # segments colorés (rouge -> vert)
+                "axis": {"range": [0, 100], "tickvals": [0, 20, 40, 60, 80, 100]},
+                "bar": {"color": "#0b1f2a", "thickness": 0.25},  # risque
                 "steps": [
-                    {"range": [0, 20], "color": "#1bb55c"},   # vert
-                    {"range": [20, 40], "color": "#7ed321"},  # vert clair
-                    {"range": [40, 60], "color": "#f8e71c"},  # jaune
-                    {"range": [60, 80], "color": "#f5a623"},  # orange
-                    {"range": [80, 100], "color": "#d0021b"}, # rouge
+                    {"range": [0, 20], "color": "#1bb55c"},
+                    {"range": [20, 40], "color": "#7ed321"},
+                    {"range": [40, 60], "color": "#f8e71c"},
+                    {"range": [60, 80], "color": "#f5a623"},
+                    {"range": [80, 100], "color": "#d0021b"},
                 ],
-                # seuil métier (trait noir)
+                # repère seuil (on peut changer la couleur si tu veux)
                 "threshold": {
-                    "line": {"color": "#6c5ce7", "width": 4},
+                    "line": {"color": "black", "width": 5},
                     "thickness": 0.75,
                     "value": threshold * 100,
                 },
             },
         )
     )
-
-    # Look & feel plus proche de ton exemple (demi-jauge clean)
-    fig.update_layout(
-        height=330,
-        margin=dict(l=20, r=20, t=55, b=10),
-    )
-
+    fig.update_layout(height=330, margin=dict(l=20, r=20, t=55, b=10))
     st.plotly_chart(fig, use_container_width=True)
-    st.caption(f"Repère noir = seuil ({threshold:.2f}). Barre sombre = risque estimé.")
 
 
 def risk_level(p: float) -> tuple[str, str]:
-    # p = probabilité de défaut entre 0 et 1
     if p < 0.30:
         return "Risque faible", "success"
     if p < 0.60:
@@ -92,8 +61,8 @@ def risk_level(p: float) -> tuple[str, str]:
     return "Risque élevé", "error"
 
 
-# Warmup
-warmup_model()
+# Warmup model
+warmup()
 st.success("Modèle chargé ✅")
 
 tab_scoring, tab_monitoring, tab_about = st.tabs(["🧮 Scoring", "📊 Monitoring", "ℹ️ À propos"])
@@ -101,51 +70,71 @@ tab_scoring, tab_monitoring, tab_about = st.tabs(["🧮 Scoring", "📊 Monitori
 
 # -------------------- TAB: SCORING --------------------
 with tab_scoring:
-    st.subheader("Évaluation de la demande")
+    st.subheader("Scoring")
 
     threshold = st.slider(
-        "Seuil de décision (probabilité de défaut)",
+        "Seuil métier (probabilité de défaut)",
         min_value=0.0,
         max_value=1.0,
-        value=DEFAULT_THRESHOLD,
+        value=0.50,
         step=0.01,
-        help="Seuil métier : plus il est bas, plus on refuse facilement (politique plus conservatrice).",
+        help="Décision = REFUS si p(défaut) ≥ seuil, sinon ACCORD.",
     )
 
-    text = st.text_area(
-        "Texte à analyser",
-        placeholder="Ex: Demande de crédit auto 15k€, CDI depuis 3 ans, charges mensuelles..., historique...",
-        height=200,
-    )
+    sub_form, sub_csv = st.tabs(["🧍 1 client (formulaire)", "📄 Batch (CSV)"])
 
-    run = st.button("Calculer le score", type="primary")
+    # ---- Formulaire 1 client ----
+    with sub_form:
+        st.write(
+            "Saisie métier pour **1 client**. "
+            "On construit un DataFrame aligné sur les features d'entraînement."
+        )
 
-    if run:
-        if not text.strip():
-            st.warning("Merci de saisir un texte avant de lancer le scoring.")
-        else:
+        feats = expected_features()
+
+        # ⚠️ IMPORTANT :
+        # Si ton modèle a beaucoup de features, on ne peut pas toutes les saisir à la main.
+        # On remplit donc les features non saisies avec 0 par défaut (POC).
+        # Le mode CSV (ci-dessous) est le mode 'réaliste' si tu as beaucoup de colonnes.
+
+        st.info(
+            f"Le modèle attend {len(feats)} features. "
+            "Ce formulaire est un POC : les champs non saisis sont remplis à 0."
+        )
+
+        # Champs métier (à adapter aux variables réelles de ton dataset)
+        # -> Mets ici les features les plus parlantes côté métier
+        # -> Si une feature n'existe pas dans feats, on l'ignore proprement
+        def set_if_exists(d, key, value):
+            if key in feats:
+                d[key] = value
+
+        user = {}
+
+        # Exemples courants (Home Credit-like). Adapte si tes colonnes diffèrent.
+        set_if_exists(user, "AMT_INCOME_TOTAL", st.number_input("Revenu annuel", min_value=0.0, value=50000.0, step=1000.0))
+        set_if_exists(user, "AMT_CREDIT", st.number_input("Montant du crédit", min_value=0.0, value=15000.0, step=500.0))
+        set_if_exists(user, "AMT_ANNUITY", st.number_input("Mensualité", min_value=0.0, value=300.0, step=10.0))
+        set_if_exists(user, "DAYS_BIRTH", st.number_input("Âge (jours négatifs si Home Credit)", value=-12000))
+        set_if_exists(user, "DAYS_EMPLOYED", st.number_input("Ancienneté emploi (jours, souvent négatif)", value=-1000))
+        set_if_exists(user, "CNT_CHILDREN", st.number_input("Nombre d'enfants", min_value=0, value=0, step=1))
+
+        # Construire le dict complet strict (defaults)
+        full = {c: 0 for c in feats}
+        full.update(user)
+
+        if st.button("Calculer le score", type="primary"):
             try:
-                # Ton wrapper renvoie (label, score) où label est 0/1.
-                label, score = predict(text)
-                label_int = int(label)
-
-                # On construit une probabilité UNIFIÉE de défaut pour alimenter la jauge.
-                # - si label=1 : score ~ P(défaut)
-                # - si label=0 : score ~ P(solvable) donc P(défaut)=1-score
-                p_default = float(score) if label_int == 1 else (1.0 - float(score))
+                res = score_one_client(full, threshold=threshold, log=True)
+                p_default = float(res["p_default"])
+                decision = res["decision"]
 
                 st.markdown("### Résultat")
-                st.write(f"**Classe prédite :** {label_int} — {LABEL_MAPPING.get(label_int, str(label_int))}")
-
-                # Décision métier selon le seuil choisi
-                decision = "REFUS (risque élevé)" if p_default >= threshold else "ACCORD (risque acceptable)"
                 st.write(f"**Décision (seuil {threshold:.2f}) :** {decision}")
 
-                # Jauge vert -> rouge
                 show_speedometer(p_default, threshold=threshold)
 
                 level, tone = risk_level(p_default)
-
                 if tone == "success":
                     st.success(f"✅ {level}")
                 elif tone == "warning":
@@ -154,19 +143,56 @@ with tab_scoring:
                     st.error(f"⛔ {level}")
 
                 st.write(f"**Probabilité de défaut estimée :** {p_default:.2%}")
+                st.caption("Barre sombre = risque estimé • Trait noir = seuil de décision")
 
-                decision = "REFUS (risque élevé)" if p_default >= threshold else "ACCORD (risque acceptable)"
-                st.info(f"Décision selon le seuil {threshold:.2f} : **{decision}**")
+                with st.expander("Aperçu des features envoyées au modèle (1 ligne)"):
+                    st.dataframe(pd.DataFrame([full])[feats].head(1))
 
             except Exception as e:
-                st.error("Erreur pendant le calcul du score.")
+                st.error("Erreur pendant le scoring (alignement features / types).")
                 st.exception(e)
 
-    with st.expander("Interprétation"):
+    # ---- Batch CSV ----
+    with sub_csv:
+        st.write("Upload un CSV contenant les **mêmes colonnes que l'entraînement** (sans la cible).")
+        file = st.file_uploader("Fichier CSV", type=["csv"])
+
+        if file is not None:
+            try:
+                df = pd.read_csv(file)
+                feats = expected_features()
+
+                missing = [c for c in feats if c not in df.columns]
+                if missing:
+                    st.error(f"Colonnes manquantes (strict align): {missing}")
+                else:
+                    p_defaults = predict_proba_default(df)
+                    decisions = (p_defaults >= threshold).astype(int)
+
+                    st.markdown("### Résultats batch")
+                    st.metric("Nombre de clients", len(df))
+                    st.write("**Distribution des décisions (1 = défaut/risque)**")
+                    st.bar_chart(decisions.value_counts())
+
+                    with st.expander("Aperçu (20 premières lignes)"):
+                        out = pd.DataFrame(
+                            {"p_default": p_defaults, "decision_1_defaut": decisions},
+                            index=df.index,
+                        )
+                        st.dataframe(out.head(20))
+
+                    st.caption("En batch, on ne loggue pas chaque ligne pour éviter des logs volumineux.")
+
+            except Exception as e:
+                st.error("Erreur lors du traitement du CSV.")
+                st.exception(e)
+
+    with st.expander("Interprétation (métier)"):
         st.write(
-            "- `predict()` renvoie une classe binaire (0/1).\n"
-            "- La jauge affiche une **probabilité de défaut** unifiée (entre 0 et 1).\n"
-            "- La décision (accord/refus) est une **règle métier** basée sur un **seuil ajustable**."
+            "- Le modèle reçoit un **DataFrame pandas** aligné sur les features d'entraînement.\n"
+            "- Il retourne une **probabilité de défaut** via `predict_proba`.\n"
+            "- La décision est ensuite prise via un **seuil métier** ajustable.\n"
+            "- Le formulaire est un POC : si le modèle a beaucoup de colonnes, le mode CSV est le plus fiable."
         )
 
 
@@ -175,9 +201,8 @@ with tab_monitoring:
     st.subheader("Monitoring")
 
     log_path = Path("logs") / "predictions.jsonl"
-
     if not log_path.exists():
-        st.info("Aucun log pour l’instant. Lance quelques prédictions dans l’onglet Scoring.")
+        st.info("Aucun log pour l’instant. Lance des prédictions dans l’onglet Scoring (mode 1 client).")
     else:
         rows = []
         with log_path.open("r", encoding="utf-8") as f:
@@ -195,24 +220,21 @@ with tab_monitoring:
         else:
             df = pd.DataFrame(rows)
 
-            st.metric("Nombre de prédictions", len(df))
+            st.metric("Nombre de prédictions loggées", len(df))
 
-            # Distribution classes
-            if "label" in df.columns:
-                counts = df["label"].value_counts()
-                st.write("**Répartition des classes**")
-                st.bar_chart(counts)
+            if "p_default" in df.columns:
+                st.write("**Probabilité de défaut (historique)**")
+                st.line_chart(df["p_default"])
 
-            # Stats score/latence
-            if "score" in df.columns:
-                st.write("**Score (dernières prédictions)**")
-                st.line_chart(df["score"])
+            if "decision" in df.columns:
+                st.write("**Distribution des décisions**")
+                st.bar_chart(df["decision"].value_counts())
 
             if "latency_ms" in df.columns:
                 st.write("**Latence (ms)**")
                 st.line_chart(df["latency_ms"])
 
-            with st.expander("Voir les logs (aperçu)"):
+            with st.expander("Voir les logs (50 derniers)"):
                 st.dataframe(df.tail(50))
 
 
@@ -220,6 +242,7 @@ with tab_monitoring:
 with tab_about:
     st.subheader("À propos")
     st.write(
-        "Cette application illustre un workflow MLOps : packaging du modèle, "
-        "déploiement Docker sur Hugging Face Spaces, et synchronisation automatisée depuis GitHub."
+        "Application de scoring crédit déployée sur Hugging Face via Docker, "
+        "avec synchronisation depuis GitHub. "
+        "Le modèle consomme un DataFrame strictement aligné sur les features d'entraînement."
     )
