@@ -72,13 +72,9 @@ tab_scoring, tab_monitoring, tab_about = st.tabs(["🧮 Scoring", "📊 Monitori
 with tab_scoring:
     st.subheader("Scoring")
 
-    # ✅ Un seul slider (partagé par Formulaire + CSV)
     threshold = st.slider(
         "Seuil métier (probabilité de défaut)",
-        min_value=0.0,
-        max_value=1.0,
-        value=0.50,
-        step=0.01,
+        0.0, 1.0, 0.50, 0.01,
         help="Décision = REFUS si p(défaut) ≥ seuil, sinon ACCORD.",
         key="threshold_global",
     )
@@ -87,238 +83,105 @@ with tab_scoring:
 
     # ---- Formulaire 1 client ----
     with sub_form:
-    st.write("Formulaire métier (27 variables) — saisie d’un collaborateur / client interne.")
+        st.write("Formulaire métier (27 variables) — saisie d’un collaborateur / client interne.")
 
-    feats = expected_features()
+        feats = expected_features()
 
-    # --- Helpers ---
-    def key_for(name: str) -> str:
-        return f"feat_{name}"
+        def key_for(name: str) -> str:
+            return f"feat_{name}"
 
-    def as_int_bool(x: bool) -> int:
-        return 1 if x else 0
+        def as_int_bool(x: bool) -> int:
+            return 1 if x else 0
 
-    # Valeurs par défaut (safe)
-    values = {c: 0 for c in feats}
+        values = {c: 0 for c in feats}
 
-    st.divider()
-    col_left, col_right = st.columns(2)
+        st.divider()
+        col_left, col_right = st.columns(2)
 
-    # =========================
-    # Colonne gauche
-    # =========================
-    with col_left:
-        st.markdown("### Identité")
-        values["age"] = st.number_input("Âge", min_value=16, max_value=80, value=35, step=1, key=key_for("age"))
-        values["genre"] = st.selectbox("Genre", ["F", "M"], index=0, key=key_for("genre"))
+        with col_left:
+            st.markdown("### Identité")
+            values["age"] = st.number_input("Âge", 16, 80, 35, 1, key=key_for("age"))
+            values["genre"] = st.selectbox("Genre", ["F", "M"], index=0, key=key_for("genre"))
 
-        st.markdown("### Situation")
-        values["statut_marital"] = st.selectbox(
-            "Statut marital",
-            ["Célibataire", "Marié(e)", "Divorcé(e)", "Veuf/Veuve", "Autre"],
-            index=0,
-            key=key_for("statut_marital"),
-        )
+            st.markdown("### Situation")
+            values["statut_marital"] = st.selectbox(
+                "Statut marital",
+                ["Célibataire", "Marié(e)", "Divorcé(e)", "Veuf/Veuve", "Autre"],
+                index=0,
+                key=key_for("statut_marital"),
+            )
 
-        st.markdown("### Localisation / Poste")
-        values["departement"] = st.text_input("Département (ex: 75, 92, 13...)", value="75", key=key_for("departement"))
-        values["poste"] = st.text_input("Poste / Intitulé", value="Employé", key=key_for("poste"))
+            st.markdown("### Localisation / Poste")
+            values["departement"] = st.text_input("Département (ex: 75, 92...)", value="75", key=key_for("departement"))
+            values["poste"] = st.text_input("Poste / Intitulé", value="Employé", key=key_for("poste"))
 
-        st.markdown("### Revenus & charge")
-        values["revenu_mensuel"] = st.number_input(
-            "Revenu mensuel (€)",
-            min_value=0.0,
-            value=2500.0,
-            step=100.0,
-            key=key_for("revenu_mensuel"),
-        )
+            st.markdown("### Revenus & charge")
+            values["revenu_mensuel"] = st.number_input("Revenu mensuel (€)", min_value=0.0, value=2500.0, step=100.0, key=key_for("revenu_mensuel"))
+            values["distance_domicile_travail"] = st.number_input("Distance domicile–travail (km)", min_value=0.0, value=10.0, step=1.0, key=key_for("distance_domicile_travail"))
 
-        values["distance_domicile_travail"] = st.number_input(
-            "Distance domicile–travail (km)",
-            min_value=0.0,
-            value=10.0,
-            step=1.0,
-            key=key_for("distance_domicile_travail"),
-        )
+        with col_right:
+            st.markdown("### Expérience / carrière")
+            values["nombre_experiences_precedentes"] = st.number_input("Nombre d’expériences précédentes", 0, 50, 2, 1, key=key_for("nombre_experiences_precedentes"))
+            values["annee_experience_totale"] = st.number_input("Années d’expérience totale", 0, 60, 8, 1, key=key_for("annee_experience_totale"))
+            values["annees_dans_l_entreprise"] = st.number_input("Années dans l’entreprise", 0, 60, 3, 1, key=key_for("annees_dans_l_entreprise"))
+            values["annees_dans_le_poste_actuel"] = st.number_input("Années dans le poste actuel", 0, 60, 2, 1, key=key_for("annees_dans_le_poste_actuel"))
+            values["annes_sous_responsable_actuel"] = st.number_input("Années sous le responsable actuel", 0, 60, 2, 1, key=key_for("annes_sous_responsable_actuel"))
+            values["annees_depuis_la_derniere_promotion"] = st.number_input("Années depuis la dernière promotion", 0, 60, 1, 1, key=key_for("annees_depuis_la_derniere_promotion"))
 
-    # =========================
-    # Colonne droite
-    # =========================
-    with col_right:
-        st.markdown("### Expérience / carrière")
-        values["nombre_experiences_precedentes"] = st.number_input(
-            "Nombre d’expériences précédentes",
-            min_value=0,
-            value=2,
-            step=1,
-            key=key_for("nombre_experiences_precedentes"),
-        )
-        values["annee_experience_totale"] = st.number_input(
-            "Années d’expérience totale",
-            min_value=0,
-            value=8,
-            step=1,
-            key=key_for("annee_experience_totale"),
-        )
-        values["annees_dans_l_entreprise"] = st.number_input(
-            "Années dans l’entreprise",
-            min_value=0,
-            value=3,
-            step=1,
-            key=key_for("annees_dans_l_entreprise"),
-        )
-        values["annees_dans_le_poste_actuel"] = st.number_input(
-            "Années dans le poste actuel",
-            min_value=0,
-            value=2,
-            step=1,
-            key=key_for("annees_dans_le_poste_actuel"),
-        )
-        values["annes_sous_responsable_actuel"] = st.number_input(
-            "Années sous le responsable actuel",
-            min_value=0,
-            value=2,
-            step=1,
-            key=key_for("annes_sous_responsable_actuel"),
-        )
-        values["annees_depuis_la_derniere_promotion"] = st.number_input(
-            "Années depuis la dernière promotion",
-            min_value=0,
-            value=1,
-            step=1,
-            key=key_for("annees_depuis_la_derniere_promotion"),
-        )
+            st.markdown("### Organisation / formation")
+            values["niveau_hierarchique_poste"] = st.number_input("Niveau hiérarchique du poste", 1, 10, 2, 1, key=key_for("niveau_hierarchique_poste"))
+            values["nb_formations_suivies"] = st.number_input("Nombre de formations suivies", 0, 100, 1, 1, key=key_for("nb_formations_suivies"))
+            values["nombre_participation_pee"] = st.number_input("Nombre de participations PEE", 0, 100, 0, 1, key=key_for("nombre_participation_pee"))
 
-        st.markdown("### Organisation / formation")
-        values["niveau_hierarchique_poste"] = st.number_input(
-            "Niveau hiérarchique du poste",
-            min_value=1,
-            value=2,
-            step=1,
-            key=key_for("niveau_hierarchique_poste"),
-        )
-        values["nb_formations_suivies"] = st.number_input(
-            "Nombre de formations suivies",
-            min_value=0,
-            value=1,
-            step=1,
-            key=key_for("nb_formations_suivies"),
-        )
-        values["nombre_participation_pee"] = st.number_input(
-            "Nombre de participations PEE",
-            min_value=0,
-            value=0,
-            step=1,
-            key=key_for("nombre_participation_pee"),
-        )
+            st.markdown("### Déplacements / éducation")
+            values["frequence_deplacement"] = st.selectbox("Fréquence de déplacement", ["Jamais", "Rare", "Fréquent"], index=0, key=key_for("frequence_deplacement"))
+            values["niveau_education"] = st.selectbox("Niveau d’éducation", ["Bac", "Bac+2", "Licence", "Master", "Doctorat", "Autre"], index=2, key=key_for("niveau_education"))
+            values["domaine_etude"] = st.text_input("Domaine d’étude", value="Général", key=key_for("domaine_etude"))
 
-        st.markdown("### Déplacements / éducation")
-        values["frequence_deplacement"] = st.selectbox(
-            "Fréquence de déplacement",
-            ["Jamais", "Rare", "Fréquent"],
-            index=0,
-            key=key_for("frequence_deplacement"),
-        )
-        values["niveau_education"] = st.selectbox(
-            "Niveau d’éducation",
-            ["Bac", "Bac+2", "Licence", "Master", "Doctorat", "Autre"],
-            index=2,
-            key=key_for("niveau_education"),
-        )
-        values["domaine_etude"] = st.text_input("Domaine d’étude", value="Général", key=key_for("domaine_etude"))
+        st.divider()
+        st.markdown("### Satisfaction (échelle 1–4)")
+        sat_cols = st.columns(2)
 
-    st.divider()
+        with sat_cols[0]:
+            values["satisfaction_employee_environnement"] = st.slider("Satisfaction environnement", 1, 4, 3, key=key_for("satisfaction_employee_environnement"))
+            values["satisfaction_employee_nature_travail"] = st.slider("Satisfaction nature du travail", 1, 4, 3, key=key_for("satisfaction_employee_nature_travail"))
+            values["satisfaction_employee_equilibre_pro_perso"] = st.slider("Satisfaction équilibre pro/perso", 1, 4, 3, key=key_for("satisfaction_employee_equilibre_pro_perso"))
 
-    # =========================
-    # Pleine largeur : Satisfaction & performance
-    # =========================
-    st.markdown("### Satisfaction (échelle 1–4)")
-    sat_cols = st.columns(2)
+        with sat_cols[1]:
+            values["satisfaction_employee_equipe"] = st.slider("Satisfaction équipe", 1, 4, 3, key=key_for("satisfaction_employee_equipe"))
+            values["satisfaction_employee_nature_travail"] = values["satisfaction_employee_nature_travail"]
 
-    with sat_cols[0]:
-        values["satisfaction_employee_environnement"] = st.slider(
-            "Satisfaction environnement",
-            1, 4, 3,
-            key=key_for("satisfaction_employee_environnement"),
-        )
-        values["satisfaction_employee_nature_travail"] = st.slider(
-            "Satisfaction nature du travail",
-            1, 4, 3,
-            key=key_for("satisfaction_employee_nature_travail"),
-        )
-        values["satisfaction_employee_equilibre_pro_perso"] = st.slider(
-            "Satisfaction équilibre pro/perso",
-            1, 4, 3,
-            key=key_for("satisfaction_employee_equilibre_pro_perso"),
-        )
+        st.markdown("### Performance / salaire")
+        perf_cols = st.columns(2)
 
-    with sat_cols[1]:
-        values["satisfaction_employee_equipe"] = st.slider(
-            "Satisfaction équipe",
-            1, 4, 3,
-            key=key_for("satisfaction_employee_equipe"),
-        )
+        with perf_cols[0]:
+            values["note_evaluation_precedente"] = st.slider("Note évaluation précédente (1–5)", 1, 5, 3, key=key_for("note_evaluation_precedente"))
+            values["note_evaluation_actuelle"] = st.slider("Note évaluation actuelle (1–5)", 1, 5, 3, key=key_for("note_evaluation_actuelle"))
 
-    st.markdown("### Performance / salaire")
-    perf_cols = st.columns(2)
+        with perf_cols[1]:
+            values["augementation_salaire_precedente"] = st.number_input("Augmentation salaire précédente (%)", 0.0, 100.0, 5.0, 0.5, key=key_for("augementation_salaire_precedente"))
+            values["heure_supplementaires"] = as_int_bool(st.checkbox("Heures supplémentaires", value=False, key=key_for("heure_supplementaires")))
 
-    with perf_cols[0]:
-        values["note_evaluation_precedente"] = st.slider(
-            "Note évaluation précédente (1–5)",
-            1, 5, 3,
-            key=key_for("note_evaluation_precedente"),
-        )
-        values["note_evaluation_actuelle"] = st.slider(
-            "Note évaluation actuelle (1–5)",
-            1, 5, 3,
-            key=key_for("note_evaluation_actuelle"),
-        )
+        # Construire DF strict (ordre exact)
+        df = pd.DataFrame([values])[feats]
 
-    with perf_cols[1]:
-        values["augementation_salaire_precedente"] = st.number_input(
-            "Augmentation salaire précédente (%)",
-            min_value=0.0,
-            value=5.0,
-            step=0.5,
-            key=key_for("augementation_salaire_precedente"),
-        )
-        values["heure_supplementaires"] = as_int_bool(
-            st.checkbox("Heures supplémentaires", value=False, key=key_for("heure_supplementaires"))
-        )
+        if st.button("Calculer le score", type="primary", key="btn_score_single"):
+            try:
+                p_default = float(predict_proba_default(df).iloc[0])
+                decision = "REFUS" if p_default >= threshold else "ACCORD"
 
-    # Sécuriser l'ordre strict attendu
-    df = pd.DataFrame([values])[feats]
+                st.markdown("### Résultat")
+                st.write(f"**Décision (seuil {threshold:.2f}) :** {decision}")
 
-    if st.button("Calculer le score", type="primary", key="btn_score_single"):
-        try:
-            p_defaults = predict_proba_default(df)
-            p_default = float(p_defaults.iloc[0])
+                show_speedometer(p_default, threshold=threshold)
 
-            decision = "REFUS" if p_default >= threshold else "ACCORD"
+                level, tone = risk_level(p_default)
+                {"success": st.success, "warning": st.warning, "error": st.error}[tone](f"{'✅' if tone=='success' else '⚠️' if tone=='warning' else '⛔'} {level}")
+                st.write(f"**Probabilité de défaut estimée :** {p_default:.2%}")
 
-            st.markdown("### Résultat")
-            st.write(f"**Décision (seuil {threshold:.2f}) :** {decision}")
-
-            show_speedometer(p_default, threshold=threshold)
-
-            level, tone = risk_level(p_default)
-            if tone == "success":
-                st.success(f"✅ {level}")
-            elif tone == "warning":
-                st.warning(f"⚠️ {level}")
-            else:
-                st.error(f"⛔ {level}")
-
-            st.write(f"**Probabilité de défaut estimée :** {p_default:.2%}")
-            st.caption("Barre sombre = risque estimé • Trait noir = seuil de décision")
-
-            with st.expander("DataFrame envoyé au modèle (1 ligne)"):
-                st.dataframe(df)
-
-        except Exception as e:
-            st.error("Erreur pendant le scoring (types / encodage).")
-            st.exception(e)
-
+            except Exception as e:
+                st.error("Erreur pendant le scoring (types / encodage).")
+                st.exception(e)
 
     # ---- Batch CSV ----
     with sub_csv:
@@ -327,41 +190,26 @@ with tab_scoring:
 
         if file is not None:
             try:
-                df = pd.read_csv(file)
+                df_in = pd.read_csv(file)
                 feats = expected_features()
-
-                missing = [c for c in feats if c not in df.columns]
+                missing = [c for c in feats if c not in df_in.columns]
                 if missing:
                     st.error(f"Colonnes manquantes (strict align): {missing}")
                 else:
-                    p_defaults = predict_proba_default(df)
+                    p_defaults = predict_proba_default(df_in)
                     decisions = (p_defaults >= threshold).astype(int)
 
-                    st.markdown("### Résultats batch")
-                    st.metric("Nombre de clients", len(df))
-                    st.write("**Distribution des décisions (1 = défaut/risque)**")
+                    st.metric("Nombre de clients", len(df_in))
                     st.bar_chart(decisions.value_counts())
 
                     with st.expander("Aperçu (20 premières lignes)"):
-                        out = pd.DataFrame(
-                            {"p_default": p_defaults, "decision_1_defaut": decisions},
-                            index=df.index,
-                        )
+                        out = pd.DataFrame({"p_default": p_defaults, "decision_1_defaut": decisions})
                         st.dataframe(out.head(20))
-
-                    st.caption("En batch, on ne loggue pas chaque ligne pour éviter des logs volumineux.")
 
             except Exception as e:
                 st.error("Erreur lors du traitement du CSV.")
                 st.exception(e)
 
-    with st.expander("Interprétation (métier)"):
-        st.write(
-            "- Le modèle reçoit un **DataFrame pandas** aligné sur les features d'entraînement.\n"
-            "- Il retourne une **probabilité de défaut** via `predict_proba`.\n"
-            "- La décision est ensuite prise via un **seuil métier** ajustable.\n"
-            "- Ici, tu peux scorer un client via formulaire, ou scorer un batch via CSV."
-        )
 
 
 # -------------------- TAB: MONITORING --------------------
