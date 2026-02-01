@@ -72,6 +72,7 @@ tab_scoring, tab_monitoring, tab_about = st.tabs(["🧮 Scoring", "📊 Monitori
 with tab_scoring:
     st.subheader("Scoring")
 
+    # ✅ Un seul slider (partagé par Formulaire + CSV)
     threshold = st.slider(
         "Seuil métier (probabilité de défaut)",
         min_value=0.0,
@@ -79,81 +80,73 @@ with tab_scoring:
         value=0.50,
         step=0.01,
         help="Décision = REFUS si p(défaut) ≥ seuil, sinon ACCORD.",
+        key="threshold_global",
     )
 
     sub_form, sub_csv = st.tabs(["🧍 1 client (formulaire)", "📄 Batch (CSV)"])
 
     # ---- Formulaire 1 client ----
-with sub_form:
-    st.write(
-        "Formulaire complet (**27 features**) : les champs sont générés automatiquement à partir "
-        "des features d'entraînement du modèle. "
-        "Le DataFrame est ensuite envoyé avec l'ordre exact attendu."
-    )
+    with sub_form:
+        st.write(
+            "Formulaire complet (**27 features**) : les champs sont générés automatiquement à partir "
+            "des features d'entraînement du modèle. "
+            "Le DataFrame est ensuite envoyé avec l'ordre exact attendu."
+        )
 
-    feats = expected_features()
-    threshold = st.slider(
-        "Seuil métier (probabilité de défaut)",
-        min_value=0.0,
-        max_value=1.0,
-        value=0.50,
-        step=0.01,
-        help="Décision = REFUS si p(défaut) ≥ seuil, sinon ACCORD.",
-    )
+        feats = expected_features()
 
-    st.divider()
-    st.caption("Astuce : tu peux laisser des valeurs par défaut et ne renseigner que les champs clés pour la démo.")
+        st.divider()
+        st.caption("Astuce : tu peux laisser des valeurs par défaut et ne renseigner que les champs clés pour la démo.")
 
-    col_left, col_right = st.columns(2)
+        col_left, col_right = st.columns(2)
 
-    # Valeurs par défaut (tu peux les adapter)
-    values = {}
+        values = {}
+        for i, c in enumerate(feats):
+            target_col = col_left if i % 2 == 0 else col_right
+            with target_col:
+                # Ajoute une key unique par champ (super important si labels identiques un jour)
+                widget_key = f"feat_{c}"
 
-    for i, c in enumerate(feats):
-        target_col = col_left if i % 2 == 0 else col_right
+                if any(k in c.upper() for k in ["FLAG", "IND", "IS_", "HAS_"]) or c.upper().endswith("_YN"):
+                    values[c] = st.number_input(c, value=0, step=1, key=widget_key)
+                else:
+                    values[c] = st.number_input(c, value=0.0, key=widget_key)
 
-        with target_col:
-            if any(k in c.upper() for k in ["FLAG", "IND", "IS_", "HAS_"]) or c.upper().endswith("_YN"):
-                values[c] = st.number_input(c, value=0, step=1)
-            else:
-                values[c] = st.number_input(c, value=0.0)
+        if st.button("Calculer le score", type="primary", key="btn_score_single"):
+            try:
+                df = pd.DataFrame([values])[feats]  # ordre strict
+                p_defaults = predict_proba_default(df)
+                p_default = float(p_defaults.iloc[0])
 
+                decision = "REFUS" if p_default >= threshold else "ACCORD"
 
-    if st.button("Calculer le score", type="primary"):
-        try:
-            df = pd.DataFrame([values])[feats]  # ordre strict
-            p_defaults = predict_proba_default(df)
-            p_default = float(p_defaults.iloc[0])
+                st.markdown("### Résultat")
+                st.write(f"**Décision (seuil {threshold:.2f}) :** {decision}")
 
-            decision = "REFUS" if p_default >= threshold else "ACCORD"
+                show_speedometer(p_default, threshold=threshold)
 
-            st.markdown("### Résultat")
-            st.write(f"**Décision (seuil {threshold:.2f}) :** {decision}")
+                level, tone = risk_level(p_default)
+                if tone == "success":
+                    st.success(f"✅ {level}")
+                elif tone == "warning":
+                    st.warning(f"⚠️ {level}")
+                else:
+                    st.error(f"⛔ {level}")
 
-            show_speedometer(p_default, threshold=threshold)
+                st.write(f"**Probabilité de défaut estimée :** {p_default:.2%}")
+                st.caption("Barre sombre = risque estimé • Trait noir = seuil de décision")
 
-            level, tone = risk_level(p_default)
-            if tone == "success":
-                st.success(f"✅ {level}")
-            elif tone == "warning":
-                st.warning(f"⚠️ {level}")
-            else:
-                st.error(f"⛔ {level}")
+                with st.expander("DataFrame envoyé au modèle (1 ligne)"):
+                    st.dataframe(df)
 
-            st.write(f"**Probabilité de défaut estimée :** {p_default:.2%}")
-            st.caption("Barre sombre = risque estimé • Trait noir = seuil de décision")
-
-            with st.expander("DataFrame envoyé au modèle (1 ligne)"):
-                st.dataframe(df)
-
-        except Exception as e:
-            st.error("Erreur pendant le scoring (alignement features / types).")
-            st.exception(e)
+            except Exception as e:
+                st.error("Erreur pendant le scoring (alignement features / types).")
+                st.exception(e)
 
     # ---- Batch CSV ----
     with sub_csv:
         st.write("Upload un CSV contenant les **mêmes colonnes que l'entraînement** (sans la cible).")
-        file = st.file_uploader("Fichier CSV", type=["csv"])
+        file = st.file_uploader("Fichier CSV", type=["csv"], key="csv_uploader")
 
         if file is not None:
             try:
@@ -190,7 +183,7 @@ with sub_form:
             "- Le modèle reçoit un **DataFrame pandas** aligné sur les features d'entraînement.\n"
             "- Il retourne une **probabilité de défaut** via `predict_proba`.\n"
             "- La décision est ensuite prise via un **seuil métier** ajustable.\n"
-            "- Le formulaire est un POC : si le modèle a beaucoup de colonnes, le mode CSV est le plus fiable."
+            "- Ici, tu peux scorer un client via formulaire, ou scorer un batch via CSV."
         )
 
 
