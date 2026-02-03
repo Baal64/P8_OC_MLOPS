@@ -27,6 +27,7 @@ EDU_MAP = {
     "Autre": 5,
 }
 
+THRESHOLD = 0.50
 
 @st.cache_resource
 def warmup():
@@ -130,15 +131,8 @@ tab_scoring, tab_monitoring, tab_about = st.tabs(["🧮 Scoring", "📊 Monitori
 with tab_scoring:
     st.subheader("Scoring")
 
-    threshold = st.slider(
-        "Seuil métier (probabilité de défaut)",
-        min_value=0.0,
-        max_value=1.0,
-        value=0.50,
-        step=0.01,
-        help="Décision = REFUS si p(défaut) ≥ seuil, sinon ACCORD.",
-        key="threshold_global",
-    )
+    threshold = THRESHOLD
+    st.info(f"Seuil métier utilisé : {threshold:.2f}")
 
     # ---- Formulaire 1 client ----
     feats = expected_features()
@@ -256,7 +250,7 @@ with tab_scoring:
                 st.error(f"⛔ {level}")
 
             st.write(f"**Probabilité de défaut estimée :** {p_default:.2%}")
-            st.caption("Barre sombre = risque estimé • Trait noir = seuil de décision")
+            st.caption("Barre sombre = risque estimé • Trait blanc = seuil de décision")
 
             with st.expander("DataFrame envoyé au modèle (1 ligne)"):
                 st.dataframe(df)
