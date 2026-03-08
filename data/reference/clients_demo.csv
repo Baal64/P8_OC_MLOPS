@@ -1,0 +1,16 @@
+client_id,age,genre,revenu_mensuel,statut_marital,departement,poste,nombre_experiences_precedentes,annee_experience_totale,annees_dans_l_entreprise,annees_dans_le_poste_actuel,satisfaction_employee_environnement,note_evaluation_precedente,niveau_hierarchique_poste,satisfaction_employee_nature_travail,satisfaction_employee_equipe,satisfaction_employee_equilibre_pro_perso,note_evaluation_actuelle,heure_supplementaires,augementation_salaire_precedente,nombre_participation_pee,nb_formations_suivies,distance_domicile_travail,niveau_education,domaine_etude,frequence_deplacement,annees_depuis_la_derniere_promotion,annes_sous_responsable_actuel
+C001,29,0,6100,Célibataire,31,Analyste,0,8,4,1,1,2,2,1,2,4,2,1,7.1,0,2,45,3,RH,Rare,1,0
+C002,31,0,4000,Divorcé(e),33,Analyste,7,7,5,0,1,4,1,3,3,2,1,0,7.9,2,1,15,0,Commerce,Rare,3,0
+C003,51,1,6200,Célibataire,69,Technicien,2,25,5,2,4,4,3,2,3,1,2,0,9.7,3,4,5,1,Marketing,Fréquent,1,1
+C004,42,0,3400,Marié(e),13,Chef de projet,6,18,15,6,4,3,2,2,4,1,1,0,1.8,1,6,39,0,Commerce,Rare,7,5
+C005,51,1,5900,Divorcé(e),92,Chef de projet,6,22,8,8,2,4,1,3,2,1,3,0,1.8,1,8,34,0,Marketing,Rare,1,0
+C006,53,0,3300,Célibataire,92,Data Analyst,1,32,3,2,2,2,4,2,3,4,2,0,8.6,3,5,29,4,Commerce,Jamais,1,1
+C007,37,0,1800,Célibataire,75,Technicien,1,13,1,1,1,3,1,2,3,4,2,0,8.7,4,7,16,3,Qualité,Rare,0,0
+C008,34,1,4700,Célibataire,92,Analyste,6,12,1,1,3,1,2,2,2,4,2,1,2.2,3,3,5,3,Qualité,Fréquent,1,1
+C009,28,1,4900,Veuf/Veuve,13,Commercial,0,7,0,0,2,4,1,4,3,4,3,1,8.4,5,8,43,5,Commerce,Jamais,0,0
+C010,34,0,2100,Veuf/Veuve,69,Analyste,8,9,3,0,1,2,1,1,2,4,1,0,6.9,0,1,27,5,Marketing,Fréquent,2,0
+C011,55,1,4300,Marié(e),33,Data Analyst,5,29,8,3,1,1,4,1,1,2,5,1,1.6,2,1,16,2,RH,Jamais,3,2
+C012,50,1,6000,Célibataire,69,Chef de projet,1,21,9,9,1,5,2,3,3,2,3,0,8.2,2,8,32,2,Qualité,Jamais,0,8
+C013,27,0,5800,Divorcé(e),69,Data Analyst,8,0,0,0,4,5,1,1,1,2,5,0,10.0,4,8,10,3,Informatique,Jamais,0,0
+C014,41,0,4000,Veuf/Veuve,69,Technicien,2,15,1,1,2,4,1,2,3,4,2,1,1.9,5,1,25,0,Qualité,Rare,0,0
+C015,36,0,1900,Marié(e),31,Assistant RH,4,12,7,5,1,3,3,4,3,1,1,1,2.1,2,0,7,4,Commerce,Rare,3,2

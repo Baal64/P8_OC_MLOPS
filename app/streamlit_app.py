@@ -5,18 +5,16 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from src.inference import expected_features, load_model
-from src.inference import score_one_client
+from src.inference import expected_features, load_model, predict_proba_default
 
+# ---------- CONFIG ----------
+st.set_page_config(page_title="Scoring Crédit", layout="wide")
+st.title("Scoring client – Demande de crédit")
+st.caption("Démo MLOps • Streamlit + Docker • Déploiement Hugging Face")
 
-# ---------- UI CONFIG ----------
-st.set_page_config(page_title="Scoring", layout="centered")
-st.title("Scoring – Demande de crédit / risque")
-st.caption("Démo MLOps • Streamlit + Docker • Déploiement Hugging Face (sync depuis GitHub)")
+CLIENTS_PATH = Path("data/reference/clients_demo.csv")
+THRESHOLD = 0.50
 
-
-# ---------- MAPPINGS UI -> NUM ----------
-# (Car ton pipeline 'num' applique SimpleImputer(median) => il faut du numérique)
 GENDER_MAP = {"F": 0, "M": 1}
 EDU_MAP = {
     "Bac": 0,
@@ -26,8 +24,9 @@ EDU_MAP = {
     "Doctorat": 4,
     "Autre": 5,
 }
+INV_GENDER_MAP = {v: k for k, v in GENDER_MAP.items()}
+INV_EDU_MAP = {v: k for k, v in EDU_MAP.items()}
 
-THRESHOLD = 0.50
 
 @st.cache_resource
 def warmup():
@@ -35,12 +34,18 @@ def warmup():
     return True
 
 
+@st.cache_data
+def load_clients() -> pd.DataFrame:
+    if not CLIENTS_PATH.exists():
+        raise FileNotFoundError(
+            f"Fichier introuvable : {CLIENTS_PATH}. "
+            "Ajoute clients_demo.csv dans data/reference/."
+        )
+    return pd.read_csv(CLIENTS_PATH)
+
+
 @st.cache_resource
 def get_feature_groups():
-    """
-    Récupère automatiquement les colonnes num vs cat depuis le ColumnTransformer du pipeline.
-    Hypothèse: le pipeline s'appelle model.named_steps['prep'].
-    """
     model = load_model()
     ct = model.named_steps["prep"]
 
@@ -55,7 +60,6 @@ def get_feature_groups():
 
 
 def coerce_df_types(df: pd.DataFrame) -> pd.DataFrame:
-    """Force les types attendus par le pipeline (num -> numeric, cat -> string)."""
     num_cols, cat_cols = get_feature_groups()
     df = df.copy()
 
@@ -68,14 +72,6 @@ def coerce_df_types(df: pd.DataFrame) -> pd.DataFrame:
             df[c] = df[c].astype(str)
 
     return df
-
-
-def key_for(name: str) -> str:
-    return f"feat_{name}"
-
-
-def as_int_bool(x: bool) -> int:
-    return 1 if x else 0
 
 
 def risk_level(p: float) -> tuple[str, str]:
@@ -99,7 +95,7 @@ def show_speedometer(p_default: float, threshold: float = 0.5) -> None:
             gauge={
                 "shape": "angular",
                 "axis": {"range": [0, 100], "tickvals": [0, 20, 40, 60, 80, 100]},
-                "bar": {"color": "#0b1f2a", "thickness": 0.25},  # risque (valeur)
+                "bar": {"color": "#0b1f2a", "thickness": 0.25},
                 "steps": [
                     {"range": [0, 20], "color": "#1bb55c"},
                     {"range": [20, 40], "color": "#7ed321"},
@@ -107,7 +103,6 @@ def show_speedometer(p_default: float, threshold: float = 0.5) -> None:
                     {"range": [60, 80], "color": "#f5a623"},
                     {"range": [80, 100], "color": "#d0021b"},
                 ],
-                # repère seuil
                 "threshold": {
                     "line": {"color": "white", "width": 5},
                     "thickness": 0.75,
@@ -120,126 +115,344 @@ def show_speedometer(p_default: float, threshold: float = 0.5) -> None:
     st.plotly_chart(fig, use_container_width=True)
 
 
-# Warmup model
-warmup()
-st.success("Modèle chargé ✅")
-
-tab_scoring, tab_monitoring, tab_about = st.tabs(["🧮 Scoring", "📊 Monitoring", "ℹ️ À propos"])
-
-
-# -------------------- TAB: SCORING --------------------
-with tab_scoring:
-    st.subheader("Scoring")
-
-    threshold = THRESHOLD
-    st.info(f"Seuil métier utilisé : {threshold:.2f}")
-
-    # ---- Formulaire 1 client ----
-    feats = expected_features()
+def client_to_feature_dict(row: pd.Series, feats: list[str]) -> dict:
     values = {c: 0 for c in feats}
+    for c in feats:
+        if c in row.index:
+            values[c] = row[c]
+    return values
 
-    st.info("Formulaire métier (2 colonnes). Les types sont validés automatiquement (num vs cat) avant scoring.")
 
-    st.divider()
-    col_left, col_right = st.columns(2)
-
-    # Colonne gauche
-    with col_left:
-        st.markdown("### Identité")
-        values["age"] = st.number_input("Âge", 16, 80, 35, 1, key=key_for("age"))
-
-        genre_ui = st.selectbox("Genre", ["F", "M"], index=0, key=key_for("genre_ui"))
-        values["genre"] = GENDER_MAP[genre_ui]  # ✅ numeric
-
-        st.markdown("### Situation")
-        values["statut_marital"] = st.selectbox(
-            "Statut marital",
-            ["Célibataire", "Marié(e)", "Divorcé(e)", "Veuf/Veuve", "Autre"],
-            index=0,
-            key=key_for("statut_marital"),
-        )
-
-        st.markdown("### Localisation / Poste")
-        values["departement"] = str(st.text_input("Département (ex: 75, 92...)", value="75", key=key_for("departement")))
-        values["poste"] = str(st.text_input("Poste / Intitulé", value="Employé", key=key_for("poste")))
-
-        st.markdown("### Revenus & charge")
-        values["revenu_mensuel"] = st.number_input("Revenu mensuel (€)", min_value=0.0, value=2500.0, step=100.0, key=key_for("revenu_mensuel"))
-        values["distance_domicile_travail"] = st.number_input("Distance domicile–travail (km)", min_value=0.0, value=10.0, step=1.0, key=key_for("distance_domicile_travail"))
-
-    # Colonne droite
-    with col_right:
-        st.markdown("### Éducation / déplacements")
-        edu_ui = st.selectbox(
-            "Niveau d’éducation",
-            ["Bac", "Bac+2", "Licence", "Master", "Doctorat", "Autre"],
-            index=3,
-            key=key_for("niveau_education_ui"),
-        )
-        values["niveau_education"] = EDU_MAP[edu_ui]  # ✅ numeric
-
-        values["domaine_etude"] = str(st.text_input("Domaine d’étude", value="Général", key=key_for("domaine_etude")))
-
-        values["frequence_deplacement"] = st.selectbox(
-            "Fréquence de déplacement",
-            ["Jamais", "Rare", "Fréquent"],
-            index=0,
-            key=key_for("frequence_deplacement"),
-        )
-
-        st.markdown("### Expérience / carrière")
-        values["nombre_experiences_precedentes"] = st.number_input("Nombre d’expériences précédentes", 0, 50, 2, 1, key=key_for("nombre_experiences_precedentes"))
-        values["annee_experience_totale"] = st.number_input("Années d’expérience totale", 0, 60, 8, 1, key=key_for("annee_experience_totale"))
-        values["annees_dans_l_entreprise"] = st.number_input("Années dans l’entreprise", 0, 60, 3, 1, key=key_for("annees_dans_l_entreprise"))
-        values["annees_dans_le_poste_actuel"] = st.number_input("Années dans le poste actuel", 0, 60, 2, 1, key=key_for("annees_dans_le_poste_actuel"))
-        values["annes_sous_responsable_actuel"] = st.number_input("Années sous le responsable actuel", 0, 60, 2, 1, key=key_for("annes_sous_responsable_actuel"))
-        values["annees_depuis_la_derniere_promotion"] = st.number_input("Années depuis la dernière promotion", 0, 60, 1, 1, key=key_for("annees_depuis_la_derniere_promotion"))
-
-        st.markdown("### Organisation / formation")
-        values["niveau_hierarchique_poste"] = st.number_input("Niveau hiérarchique du poste", 1, 10, 2, 1, key=key_for("niveau_hierarchique_poste"))
-        values["nb_formations_suivies"] = st.number_input("Nombre de formations suivies", 0, 100, 1, 1, key=key_for("nb_formations_suivies"))
-        values["nombre_participation_pee"] = st.number_input("Nombre de participations PEE", 0, 100, 0, 1, key=key_for("nombre_participation_pee"))
-
-    st.divider()
-
-    st.markdown("### Satisfaction (échelle 1–4)")
-    sat_cols = st.columns(2)
-    with sat_cols[0]:
-        values["satisfaction_employee_environnement"] = st.slider("Satisfaction environnement", 1, 4, 3, key=key_for("satisfaction_employee_environnement"))
-        values["satisfaction_employee_nature_travail"] = st.slider("Satisfaction nature du travail", 1, 4, 3, key=key_for("satisfaction_employee_nature_travail"))
-        values["satisfaction_employee_equilibre_pro_perso"] = st.slider("Satisfaction équilibre pro/perso", 1, 4, 3, key=key_for("satisfaction_employee_equilibre_pro_perso"))
-    with sat_cols[1]:
-        values["satisfaction_employee_equipe"] = st.slider("Satisfaction équipe", 1, 4, 3, key=key_for("satisfaction_employee_equipe"))
-        values["satisfaction_employee_nature_travail"] = values["satisfaction_employee_nature_travail"]
-
-    st.markdown("### Performance / salaire")
-    perf_cols = st.columns(2)
-    with perf_cols[0]:
-        values["note_evaluation_precedente"] = st.slider("Note évaluation précédente (1–5)", 1, 5, 3, key=key_for("note_evaluation_precedente"))
-        values["note_evaluation_actuelle"] = st.slider("Note évaluation actuelle (1–5)", 1, 5, 3, key=key_for("note_evaluation_actuelle"))
-    with perf_cols[1]:
-        values["augementation_salaire_precedente"] = st.number_input("Augmentation salaire précédente (%)", 0.0, 100.0, 5.0, 0.5, key=key_for("augementation_salaire_precedente"))
-        values["heure_supplementaires"] = as_int_bool(st.checkbox("Heures supplémentaires", value=False, key=key_for("heure_supplementaires")))
-
-    # Construire DF strict + types
-    df = pd.DataFrame([values])[feats]
+def save_prediction_log(p_default: float, decision: str, n_features: int) -> None:
     try:
-        df = coerce_df_types(df)
+        log_dir = Path("logs")
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_file = log_dir / "predictions.jsonl"
+        payload = {
+            "p_default": float(p_default),
+            "decision": decision,
+            "n_features": n_features,
+        }
+        with log_file.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+
+warmup()
+
+if "current_client_features" not in st.session_state:
+    st.session_state.current_client_features = None
+
+if "current_client_id" not in st.session_state:
+    st.session_state.current_client_id = None
+
+if "current_score" not in st.session_state:
+    st.session_state.current_score = None
+
+
+tab_client, tab_decision, tab_monitoring, tab_about = st.tabs(
+    ["👤 Client", "🧮 Décision", "📊 Monitoring", "ℹ️ Explications"]
+)
+
+# -------------------- TAB: CLIENT --------------------
+with tab_client:
+    st.subheader("Sélection et édition d’un client")
+
+    try:
+        clients_df = load_clients()
     except Exception as e:
-        st.error("Un champ est incompatible avec le type attendu par le modèle (num/cat).")
+        st.error("Impossible de charger le fichier clients_demo.csv")
         st.exception(e)
         st.stop()
 
-    if st.button("Calculer le score", type="primary", key="btn_score_single"):
+    feats = expected_features()
+
+    if "client_id" not in clients_df.columns:
+        st.error("Le fichier clients_demo.csv doit contenir une colonne 'client_id'.")
+        st.stop()
+
+    client_ids = clients_df["client_id"].astype(str).tolist()
+    default_idx = 0
+    if st.session_state.current_client_id in client_ids:
+        default_idx = client_ids.index(st.session_state.current_client_id)
+
+    selected_client_id = st.selectbox(
+        "Choisir un identifiant client",
+        client_ids,
+        index=default_idx,
+    )
+
+    selected_row = clients_df.loc[clients_df["client_id"].astype(str) == str(selected_client_id)].iloc[0]
+    base_values = client_to_feature_dict(selected_row, feats)
+
+    st.info(f"Seuil métier utilisé : {THRESHOLD:.2f}")
+
+    col_left, col_right = st.columns(2)
+    edited = dict(base_values)
+
+    with col_left:
+        st.markdown("### Identité")
+        edited["age"] = st.number_input(
+            "Âge",
+            min_value=16,
+            max_value=80,
+            value=int(base_values.get("age", 35)),
+            step=1,
+            key="age_input",
+        )
+
+        genre_value = int(base_values.get("genre", 0))
+        genre_default = INV_GENDER_MAP.get(genre_value, "F")
+        genre_ui = st.selectbox(
+            "Genre",
+            ["F", "M"],
+            index=["F", "M"].index(genre_default),
+            key="genre_input",
+        )
+        edited["genre"] = GENDER_MAP[genre_ui]
+
+        st.markdown("### Situation")
+        marital_options = ["Célibataire", "Marié(e)", "Divorcé(e)", "Veuf/Veuve", "Autre"]
+        marital_default = str(base_values.get("statut_marital", "Célibataire"))
+        marital_index = marital_options.index(marital_default) if marital_default in marital_options else 0
+        edited["statut_marital"] = st.selectbox(
+            "Statut marital",
+            marital_options,
+            index=marital_index,
+            key="statut_marital_input",
+        )
+
+        st.markdown("### Localisation / Poste")
+        edited["departement"] = str(
+            st.text_input(
+                "Département",
+                value=str(base_values.get("departement", "75")),
+                key="departement_input",
+            )
+        )
+        edited["poste"] = str(
+            st.text_input(
+                "Poste / Intitulé",
+                value=str(base_values.get("poste", "Employé")),
+                key="poste_input",
+            )
+        )
+
+        st.markdown("### Revenus & charge")
+        edited["revenu_mensuel"] = st.number_input(
+            "Revenu mensuel (€)",
+            min_value=0.0,
+            value=float(base_values.get("revenu_mensuel", 2500.0)),
+            step=100.0,
+            key="revenu_input",
+        )
+        edited["distance_domicile_travail"] = st.number_input(
+            "Distance domicile–travail (km)",
+            min_value=0.0,
+            value=float(base_values.get("distance_domicile_travail", 10.0)),
+            step=1.0,
+            key="distance_input",
+        )
+
+    with col_right:
+        st.markdown("### Éducation / déplacements")
+        edu_value = int(base_values.get("niveau_education", 2))
+        edu_default = INV_EDU_MAP.get(edu_value, "Licence")
+        edu_options = ["Bac", "Bac+2", "Licence", "Master", "Doctorat", "Autre"]
+        edited["niveau_education"] = EDU_MAP[
+            st.selectbox(
+                "Niveau d’éducation",
+                edu_options,
+                index=edu_options.index(edu_default),
+                key="education_input",
+            )
+        ]
+        edited["domaine_etude"] = str(
+            st.text_input(
+                "Domaine d’étude",
+                value=str(base_values.get("domaine_etude", "Général")),
+                key="domaine_input",
+            )
+        )
+
+        travel_options = ["Jamais", "Rare", "Fréquent"]
+        travel_default = str(base_values.get("frequence_deplacement", "Jamais"))
+        travel_index = travel_options.index(travel_default) if travel_default in travel_options else 0
+        edited["frequence_deplacement"] = st.selectbox(
+            "Fréquence de déplacement",
+            travel_options,
+            index=travel_index,
+            key="deplacement_input",
+        )
+
+        st.markdown("### Expérience / carrière")
+        edited["nombre_experiences_precedentes"] = st.number_input(
+            "Nombre d’expériences précédentes",
+            min_value=0,
+            max_value=50,
+            value=int(base_values.get("nombre_experiences_precedentes", 2)),
+            step=1,
+            key="exp_prev_input",
+        )
+        edited["annee_experience_totale"] = st.number_input(
+            "Années d’expérience totale",
+            min_value=0,
+            max_value=60,
+            value=int(base_values.get("annee_experience_totale", 8)),
+            step=1,
+            key="exp_tot_input",
+        )
+        edited["annees_dans_l_entreprise"] = st.number_input(
+            "Années dans l’entreprise",
+            min_value=0,
+            max_value=60,
+            value=int(base_values.get("annees_dans_l_entreprise", 3)),
+            step=1,
+            key="exp_entreprise_input",
+        )
+        edited["annees_dans_le_poste_actuel"] = st.number_input(
+            "Années dans le poste actuel",
+            min_value=0,
+            max_value=60,
+            value=int(base_values.get("annees_dans_le_poste_actuel", 2)),
+            step=1,
+            key="exp_poste_input",
+        )
+        edited["annes_sous_responsable_actuel"] = st.number_input(
+            "Années sous le responsable actuel",
+            min_value=0,
+            max_value=60,
+            value=int(base_values.get("annes_sous_responsable_actuel", 2)),
+            step=1,
+            key="responsable_input",
+        )
+        edited["annees_depuis_la_derniere_promotion"] = st.number_input(
+            "Années depuis la dernière promotion",
+            min_value=0,
+            max_value=60,
+            value=int(base_values.get("annees_depuis_la_derniere_promotion", 1)),
+            step=1,
+            key="promotion_input",
+        )
+
+        st.markdown("### Organisation / formation")
+        edited["niveau_hierarchique_poste"] = st.number_input(
+            "Niveau hiérarchique du poste",
+            min_value=1,
+            max_value=10,
+            value=int(base_values.get("niveau_hierarchique_poste", 2)),
+            step=1,
+            key="hierarchie_input",
+        )
+        edited["nb_formations_suivies"] = st.number_input(
+            "Nombre de formations suivies",
+            min_value=0,
+            max_value=100,
+            value=int(base_values.get("nb_formations_suivies", 1)),
+            step=1,
+            key="formations_input",
+        )
+        edited["nombre_participation_pee"] = st.number_input(
+            "Nombre de participations PEE",
+            min_value=0,
+            max_value=100,
+            value=int(base_values.get("nombre_participation_pee", 0)),
+            step=1,
+            key="pee_input",
+        )
+
+    st.divider()
+
+    sat_cols = st.columns(2)
+    with sat_cols[0]:
+        st.markdown("### Satisfaction")
+        edited["satisfaction_employee_environnement"] = st.slider(
+            "Satisfaction environnement",
+            1, 4, int(base_values.get("satisfaction_employee_environnement", 3)),
+            key="sat_env_input",
+        )
+        edited["satisfaction_employee_nature_travail"] = st.slider(
+            "Satisfaction nature du travail",
+            1, 4, int(base_values.get("satisfaction_employee_nature_travail", 3)),
+            key="sat_travail_input",
+        )
+        edited["satisfaction_employee_equilibre_pro_perso"] = st.slider(
+            "Satisfaction équilibre pro/perso",
+            1, 4, int(base_values.get("satisfaction_employee_equilibre_pro_perso", 3)),
+            key="sat_eq_input",
+        )
+
+    with sat_cols[1]:
+        st.markdown("### Performance / salaire")
+        edited["satisfaction_employee_equipe"] = st.slider(
+            "Satisfaction équipe",
+            1, 4, int(base_values.get("satisfaction_employee_equipe", 3)),
+            key="sat_equipe_input",
+        )
+        edited["note_evaluation_precedente"] = st.slider(
+            "Note évaluation précédente",
+            1, 5, int(base_values.get("note_evaluation_precedente", 3)),
+            key="eval_prev_input",
+        )
+        edited["note_evaluation_actuelle"] = st.slider(
+            "Note évaluation actuelle",
+            1, 5, int(base_values.get("note_evaluation_actuelle", 3)),
+            key="eval_current_input",
+        )
+        edited["augementation_salaire_precedente"] = st.number_input(
+            "Augmentation salaire précédente (%)",
+            min_value=0.0,
+            max_value=100.0,
+            value=float(base_values.get("augementation_salaire_precedente", 5.0)),
+            step=0.5,
+            key="augmentation_input",
+        )
+        edited["heure_supplementaires"] = 1 if st.checkbox(
+            "Heures supplémentaires",
+            value=bool(base_values.get("heure_supplementaires", 0)),
+            key="heures_sup_input",
+        ) else 0
+
+    if st.button("Enregistrer ce client pour la décision", type="primary"):
+        df_current = pd.DataFrame([edited])[feats]
         try:
-            res = score_one_client(values, threshold=threshold, log=True)
-            p_default = float(res["p_default"])
-            decision = res["decision"]
+            df_current = coerce_df_types(df_current)
+            st.session_state.current_client_features = df_current.iloc[0].to_dict()
+            st.session_state.current_client_id = selected_client_id
+            st.success("Client enregistré. Passe à l’onglet Décision.")
+        except Exception as e:
+            st.error("Erreur de typage sur les données du client.")
+            st.exception(e)
 
+# -------------------- TAB: DECISION --------------------
+with tab_decision:
+    st.subheader("Décision")
+
+    if st.session_state.current_client_features is None:
+        st.info("Aucun client sélectionné. Va d’abord dans l’onglet Client.")
+    else:
+        feats = expected_features()
+        df = pd.DataFrame([st.session_state.current_client_features])[feats]
+
+        try:
+            df = coerce_df_types(df)
+            p_default = float(predict_proba_default(df).iloc[0])
+            decision = "REFUS" if p_default >= THRESHOLD else "ACCORD"
+            st.session_state.current_score = p_default
+            save_prediction_log(p_default, decision, len(feats))
+        except Exception as e:
+            st.error("Erreur pendant le scoring.")
+            st.exception(e)
+            st.stop()
+
+        show_speedometer(p_default, threshold=THRESHOLD)
+
+        col_a, col_b = st.columns([1, 1])
+        with col_a:
             st.markdown("### Résultat")
-            st.write(f"**Décision (seuil {threshold:.2f}) :** {decision}")
-
-            show_speedometer(p_default, threshold=threshold)
+            st.write(f"**Client :** {st.session_state.current_client_id}")
+            st.write(f"**Décision (seuil {THRESHOLD:.2f}) :** {decision}")
 
             level, tone = risk_level(p_default)
             if tone == "success":
@@ -252,21 +465,48 @@ with tab_scoring:
             st.write(f"**Probabilité de défaut estimée :** {p_default:.2%}")
             st.caption("Barre sombre = risque estimé • Trait blanc = seuil de décision")
 
-            with st.expander("DataFrame envoyé au modèle (1 ligne)"):
-                st.dataframe(df)
+        with col_b:
+            st.markdown("### Client courant")
+            st.dataframe(df)
 
-        except Exception as e:
-            st.error("Erreur pendant le scoring.")
-            st.exception(e)
+        st.divider()
+        st.markdown("### Visualisations")
 
-    with st.expander("Interprétation (métier)"):
-        st.write(
-            "- Le modèle reçoit un **DataFrame pandas** aligné sur les features d'entraînement.\n"
-            "- Le schéma est dérivé automatiquement du pipeline : colonnes **num** vs **cat**.\n"
-            "- Les champs UI (genre, niveau_education) sont convertis en numérique car attendus dans le pipeline **num**.\n"
-            "- Le modèle renvoie une **probabilité** de défaut (`predict_proba`), puis une décision via un **seuil métier**."
-        )
+        g1, g2, g3 = st.columns(3)
 
+        with g1:
+            st.markdown("**Score vs seuil**")
+            score_df = pd.DataFrame(
+                {
+                    "Mesure": ["Score client", "Seuil"],
+                    "Valeur": [p_default, THRESHOLD],
+                }
+            )
+            st.bar_chart(score_df.set_index("Mesure"))
+
+        with g2:
+            st.markdown("**Variables clés du client**")
+            key_vars = ["age", "revenu_mensuel", "annee_experience_totale", "distance_domicile_travail"]
+            key_vars = [c for c in key_vars if c in df.columns]
+            if key_vars:
+                st.bar_chart(df[key_vars].T.rename(columns={df.index[0]: "Valeur"}))
+            else:
+                st.info("Aucune variable clé disponible.")
+
+        with g3:
+            st.markdown("**Comparaison à la population de démo**")
+            clients_df = load_clients()
+            compare_var = "revenu_mensuel"
+            if compare_var in clients_df.columns and compare_var in df.columns:
+                compare_df = pd.DataFrame(
+                    {
+                        "Référence": [clients_df[compare_var].mean()],
+                        "Client": [float(df[compare_var].iloc[0])],
+                    }
+                )
+                st.bar_chart(compare_df.T.rename(columns={0: compare_var}))
+            else:
+                st.info("Comparaison indisponible.")
 
 # -------------------- TAB: MONITORING --------------------
 with tab_monitoring:
@@ -274,7 +514,7 @@ with tab_monitoring:
 
     log_path = Path("logs") / "predictions.jsonl"
     if not log_path.exists():
-        st.info("Aucun log pour l’instant. Lance des prédictions dans l’onglet Scoring (mode 1 client).")
+        st.info("Aucun log pour l’instant. Lance une décision dans l’onglet Décision.")
     else:
         rows = []
         with log_path.open("r", encoding="utf-8") as f:
@@ -293,27 +533,43 @@ with tab_monitoring:
             df_logs = pd.DataFrame(rows)
             st.metric("Nombre de prédictions loggées", len(df_logs))
 
-            if "p_default" in df_logs.columns:
-                st.write("**Probabilité de défaut (historique)**")
-                st.line_chart(df_logs["p_default"])
+            c1, c2, c3 = st.columns(3)
 
-            if "decision" in df_logs.columns:
-                st.write("**Distribution des décisions**")
-                st.bar_chart(df_logs["decision"].value_counts())
+            with c1:
+                if "p_default" in df_logs.columns:
+                    st.write("**Historique du risque**")
+                    st.line_chart(df_logs["p_default"])
 
-            if "latency_ms" in df_logs.columns:
-                st.write("**Latence (ms)**")
-                st.line_chart(df_logs["latency_ms"])
+            with c2:
+                if "decision" in df_logs.columns:
+                    st.write("**Distribution des décisions**")
+                    st.bar_chart(df_logs["decision"].value_counts())
 
-            with st.expander("Voir les logs (50 derniers)"):
+            with c3:
+                if "n_features" in df_logs.columns:
+                    st.write("**Nombre de features utilisées**")
+                    st.line_chart(df_logs["n_features"])
+
+            with st.expander("Voir les logs"):
                 st.dataframe(df_logs.tail(50))
-
 
 # -------------------- TAB: ABOUT --------------------
 with tab_about:
-    st.subheader("À propos")
+    st.subheader("Explications")
+
     st.write(
-        "Application Streamlit déployée sur Hugging Face (Docker) avec CI/CD via GitHub.\n\n"
-        "Le modèle est un Pipeline sklearn : ColumnTransformer (num + cat) + LogisticRegression.\n"
-        "Les types sont validés automatiquement d’après la configuration du pipeline."
+        """
+Cette application illustre une chaîne MLOps simple autour d’un modèle de scoring :
+
+- **Onglet Client** : sélection d’un client de démo et modification des informations.
+- **Onglet Décision** : calcul du score de risque et prise de décision selon un seuil métier fixé à **0.50**.
+- **Onglet Monitoring** : suivi des prédictions effectuées dans l’application.
+- **Pipeline modèle** : `ColumnTransformer` (numériques + catégorielles) puis `LogisticRegression`.
+
+### Points clés
+- Le modèle retourne une **probabilité de défaut**.
+- La décision est une **règle métier** appliquée à cette probabilité.
+- Les types des colonnes sont validés automatiquement à partir du pipeline d’entraînement.
+- Les clients de démonstration sont stockés dans un **CSV local**, sans base de données.
+        """
     )
