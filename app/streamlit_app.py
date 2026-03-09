@@ -172,22 +172,37 @@ with tab_client:
         st.error("Le fichier clients_demo.csv doit contenir une colonne 'client_id'.")
         st.stop()
 
-    client_ids = clients_df["client_id"].astype(str).tolist()
-    default_idx = 0
-    if st.session_state.current_client_id in client_ids:
-        default_idx = client_ids.index(st.session_state.current_client_id)
-
-    selected_client_id = st.selectbox(
-        "Choisir un identifiant client",
-        client_ids,
-        index=default_idx,
-    )
-
-    selected_row = clients_df.loc[clients_df["client_id"].astype(str) == str(selected_client_id)].iloc[0]
-    base_values = client_to_feature_dict(selected_row, feats)
-
     st.info(f"Seuil métier utilisé : {THRESHOLD:.2f}")
 
+    # ----------------------------
+    # Chargement du client par ID
+    # ----------------------------
+    default_client_id = st.session_state.current_client_id or "C001"
+    client_id_input = st.text_input(
+        "Identifiant client",
+        value=str(default_client_id),
+        key="client_id_search",
+    )
+
+    if st.button("Charger le client", key="load_client_button"):
+        match = clients_df.loc[clients_df["client_id"].astype(str) == str(client_id_input).strip()]
+        if match.empty:
+            st.error(f"Client introuvable : {client_id_input}")
+        else:
+            selected_row = match.iloc[0]
+            st.session_state.current_client_id = str(client_id_input).strip()
+            st.session_state.current_client_features = client_to_feature_dict(selected_row, feats)
+            st.success(f"Client {client_id_input} chargé.")
+
+    if st.session_state.current_client_features is None:
+        st.warning("Aucun client chargé. Saisis un identifiant puis clique sur 'Charger le client'.")
+        st.stop()
+
+    base_values = st.session_state.current_client_features.copy()
+
+    # ----------------------------
+    # Formulaire prérempli
+    # ----------------------------
     col_left, col_right = st.columns(2)
     edited = dict(base_values)
 
@@ -199,7 +214,7 @@ with tab_client:
             max_value=80,
             value=int(base_values.get("age", 35)),
             step=1,
-            key="age_input",
+            key=f"age_input_{st.session_state.current_client_id}",
         )
 
         genre_value = int(base_values.get("genre", 0))
@@ -208,7 +223,7 @@ with tab_client:
             "Genre",
             ["F", "M"],
             index=["F", "M"].index(genre_default),
-            key="genre_input",
+            key=f"genre_input_{st.session_state.current_client_id}",
         )
         edited["genre"] = GENDER_MAP[genre_ui]
 
@@ -220,7 +235,7 @@ with tab_client:
             "Statut marital",
             marital_options,
             index=marital_index,
-            key="statut_marital_input",
+            key=f"statut_marital_input_{st.session_state.current_client_id}",
         )
 
         st.markdown("### Localisation / Poste")
@@ -228,14 +243,14 @@ with tab_client:
             st.text_input(
                 "Département",
                 value=str(base_values.get("departement", "75")),
-                key="departement_input",
+                key=f"departement_input_{st.session_state.current_client_id}",
             )
         )
         edited["poste"] = str(
             st.text_input(
                 "Poste / Intitulé",
                 value=str(base_values.get("poste", "Employé")),
-                key="poste_input",
+                key=f"poste_input_{st.session_state.current_client_id}",
             )
         )
 
@@ -245,14 +260,14 @@ with tab_client:
             min_value=0.0,
             value=float(base_values.get("revenu_mensuel", 2500.0)),
             step=100.0,
-            key="revenu_input",
+            key=f"revenu_input_{st.session_state.current_client_id}",
         )
         edited["distance_domicile_travail"] = st.number_input(
             "Distance domicile–travail (km)",
             min_value=0.0,
             value=float(base_values.get("distance_domicile_travail", 10.0)),
             step=1.0,
-            key="distance_input",
+            key=f"distance_input_{st.session_state.current_client_id}",
         )
 
     with col_right:
@@ -265,14 +280,15 @@ with tab_client:
                 "Niveau d’éducation",
                 edu_options,
                 index=edu_options.index(edu_default),
-                key="education_input",
+                key=f"education_input_{st.session_state.current_client_id}",
             )
         ]
+
         edited["domaine_etude"] = str(
             st.text_input(
                 "Domaine d’étude",
                 value=str(base_values.get("domaine_etude", "Général")),
-                key="domaine_input",
+                key=f"domaine_input_{st.session_state.current_client_id}",
             )
         )
 
@@ -283,7 +299,7 @@ with tab_client:
             "Fréquence de déplacement",
             travel_options,
             index=travel_index,
-            key="deplacement_input",
+            key=f"deplacement_input_{st.session_state.current_client_id}",
         )
 
         st.markdown("### Expérience / carrière")
@@ -293,7 +309,7 @@ with tab_client:
             max_value=50,
             value=int(base_values.get("nombre_experiences_precedentes", 2)),
             step=1,
-            key="exp_prev_input",
+            key=f"exp_prev_input_{st.session_state.current_client_id}",
         )
         edited["annee_experience_totale"] = st.number_input(
             "Années d’expérience totale",
@@ -301,7 +317,7 @@ with tab_client:
             max_value=60,
             value=int(base_values.get("annee_experience_totale", 8)),
             step=1,
-            key="exp_tot_input",
+            key=f"exp_tot_input_{st.session_state.current_client_id}",
         )
         edited["annees_dans_l_entreprise"] = st.number_input(
             "Années dans l’entreprise",
@@ -309,7 +325,7 @@ with tab_client:
             max_value=60,
             value=int(base_values.get("annees_dans_l_entreprise", 3)),
             step=1,
-            key="exp_entreprise_input",
+            key=f"exp_entreprise_input_{st.session_state.current_client_id}",
         )
         edited["annees_dans_le_poste_actuel"] = st.number_input(
             "Années dans le poste actuel",
@@ -317,7 +333,7 @@ with tab_client:
             max_value=60,
             value=int(base_values.get("annees_dans_le_poste_actuel", 2)),
             step=1,
-            key="exp_poste_input",
+            key=f"exp_poste_input_{st.session_state.current_client_id}",
         )
         edited["annes_sous_responsable_actuel"] = st.number_input(
             "Années sous le responsable actuel",
@@ -325,7 +341,7 @@ with tab_client:
             max_value=60,
             value=int(base_values.get("annes_sous_responsable_actuel", 2)),
             step=1,
-            key="responsable_input",
+            key=f"responsable_input_{st.session_state.current_client_id}",
         )
         edited["annees_depuis_la_derniere_promotion"] = st.number_input(
             "Années depuis la dernière promotion",
@@ -333,7 +349,7 @@ with tab_client:
             max_value=60,
             value=int(base_values.get("annees_depuis_la_derniere_promotion", 1)),
             step=1,
-            key="promotion_input",
+            key=f"promotion_input_{st.session_state.current_client_id}",
         )
 
         st.markdown("### Organisation / formation")
@@ -343,7 +359,7 @@ with tab_client:
             max_value=10,
             value=int(base_values.get("niveau_hierarchique_poste", 2)),
             step=1,
-            key="hierarchie_input",
+            key=f"hierarchie_input_{st.session_state.current_client_id}",
         )
         edited["nb_formations_suivies"] = st.number_input(
             "Nombre de formations suivies",
@@ -351,7 +367,7 @@ with tab_client:
             max_value=100,
             value=int(base_values.get("nb_formations_suivies", 1)),
             step=1,
-            key="formations_input",
+            key=f"formations_input_{st.session_state.current_client_id}",
         )
         edited["nombre_participation_pee"] = st.number_input(
             "Nombre de participations PEE",
@@ -359,7 +375,7 @@ with tab_client:
             max_value=100,
             value=int(base_values.get("nombre_participation_pee", 0)),
             step=1,
-            key="pee_input",
+            key=f"pee_input_{st.session_state.current_client_id}",
         )
 
     st.divider()
@@ -370,17 +386,17 @@ with tab_client:
         edited["satisfaction_employee_environnement"] = st.slider(
             "Satisfaction environnement",
             1, 4, int(base_values.get("satisfaction_employee_environnement", 3)),
-            key="sat_env_input",
+            key=f"sat_env_input_{st.session_state.current_client_id}",
         )
         edited["satisfaction_employee_nature_travail"] = st.slider(
             "Satisfaction nature du travail",
             1, 4, int(base_values.get("satisfaction_employee_nature_travail", 3)),
-            key="sat_travail_input",
+            key=f"sat_travail_input_{st.session_state.current_client_id}",
         )
         edited["satisfaction_employee_equilibre_pro_perso"] = st.slider(
             "Satisfaction équilibre pro/perso",
             1, 4, int(base_values.get("satisfaction_employee_equilibre_pro_perso", 3)),
-            key="sat_eq_input",
+            key=f"sat_eq_input_{st.session_state.current_client_id}",
         )
 
     with sat_cols[1]:
@@ -388,17 +404,17 @@ with tab_client:
         edited["satisfaction_employee_equipe"] = st.slider(
             "Satisfaction équipe",
             1, 4, int(base_values.get("satisfaction_employee_equipe", 3)),
-            key="sat_equipe_input",
+            key=f"sat_equipe_input_{st.session_state.current_client_id}",
         )
         edited["note_evaluation_precedente"] = st.slider(
             "Note évaluation précédente",
             1, 5, int(base_values.get("note_evaluation_precedente", 3)),
-            key="eval_prev_input",
+            key=f"eval_prev_input_{st.session_state.current_client_id}",
         )
         edited["note_evaluation_actuelle"] = st.slider(
             "Note évaluation actuelle",
             1, 5, int(base_values.get("note_evaluation_actuelle", 3)),
-            key="eval_current_input",
+            key=f"eval_current_input_{st.session_state.current_client_id}",
         )
         edited["augementation_salaire_precedente"] = st.number_input(
             "Augmentation salaire précédente (%)",
@@ -406,20 +422,19 @@ with tab_client:
             max_value=100.0,
             value=float(base_values.get("augementation_salaire_precedente", 5.0)),
             step=0.5,
-            key="augmentation_input",
+            key=f"augmentation_input_{st.session_state.current_client_id}",
         )
         edited["heure_supplementaires"] = 1 if st.checkbox(
             "Heures supplémentaires",
             value=bool(base_values.get("heure_supplementaires", 0)),
-            key="heures_sup_input",
+            key=f"heures_sup_input_{st.session_state.current_client_id}",
         ) else 0
 
-    if st.button("Enregistrer ce client pour la décision", type="primary"):
+    if st.button("Enregistrer ce client pour la décision", type="primary", key="save_client_button"):
         df_current = pd.DataFrame([edited])[feats]
         try:
             df_current = coerce_df_types(df_current)
             st.session_state.current_client_features = df_current.iloc[0].to_dict()
-            st.session_state.current_client_id = selected_client_id
             st.success("Client enregistré. Passe à l’onglet Décision.")
         except Exception as e:
             st.error("Erreur de typage sur les données du client.")
@@ -430,7 +445,7 @@ with tab_decision:
     st.subheader("Décision")
 
     if st.session_state.current_client_features is None:
-        st.info("Aucun client sélectionné. Va d’abord dans l’onglet Client.")
+        st.info("Aucun client sélectionné. Sélectionnez d'abord un client dans l’onglet Client.")
     else:
         feats = expected_features()
         df = pd.DataFrame([st.session_state.current_client_features])[feats]
