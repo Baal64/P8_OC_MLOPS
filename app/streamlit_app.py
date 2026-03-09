@@ -589,7 +589,7 @@ with tab_decision:
         # Graphique 2 : comparaison client vs moyenne
         # ----------------------------
         with g2:
-            st.markdown("### 2. Client vs moyenne de la population")
+            st.markdown("### 2. Profil relatif à la population")
 
             compare_vars = [
                 "age",
@@ -600,34 +600,38 @@ with tab_decision:
             compare_vars = [c for c in compare_vars if c in df.columns and c in df_ref_no_id.columns]
 
             if compare_vars:
+
                 client_vals = df[compare_vars].iloc[0]
                 mean_vals = df_ref_no_id[compare_vars].mean()
 
+                # normalisation par la moyenne
+                relative_vals = client_vals / mean_vals
+
                 fig_compare = go.Figure()
+
                 fig_compare.add_trace(
                     go.Bar(
                         x=compare_vars,
-                        y=client_vals.values,
-                        name="Client",
+                        y=relative_vals.values,
                         marker_color="#0b1f2a",
                     )
                 )
-                fig_compare.add_trace(
-                    go.Bar(
-                        x=compare_vars,
-                        y=mean_vals.values,
-                        name="Moyenne démo",
-                        marker_color="#f5a623",
-                    )
+
+                fig_compare.add_hline(
+                    y=1,
+                    line_dash="dash",
+                    line_color="red",
+                    annotation_text="Moyenne population",
+                    annotation_position="top left",
                 )
 
                 fig_compare.update_layout(
-                    barmode="group",
-                    yaxis_title="Valeur",
+                    yaxis_title="Indice (1 = moyenne)",
                     height=350,
                 )
 
                 st.plotly_chart(fig_compare, use_container_width=True)
+
             else:
                 st.info("Variables de comparaison indisponibles.")
 
