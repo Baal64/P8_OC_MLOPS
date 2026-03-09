@@ -175,16 +175,36 @@ with tab_client:
     st.info(f"Seuil métier utilisé : {THRESHOLD:.2f}")
 
     # ----------------------------
-    # Chargement du client par ID
+    # Ligne d'action compacte
     # ----------------------------
-    default_client_id = st.session_state.current_client_id or "C001"
-    client_id_input = st.text_input(
-        "Identifiant client",
-        value=str(default_client_id),
-        key="client_id_search",
-    )
+    action_col1, action_col2, action_col3 = st.columns([2, 1, 1])
 
-    if st.button("Charger le client", key="load_client_button"):
+    default_client_id = st.session_state.current_client_id or "C001"
+
+    with action_col1:
+        client_id_input = st.text_input(
+            "Identifiant client",
+            value=str(default_client_id),
+            key="client_id_search",
+        )
+
+    load_clicked = False
+    save_clicked = False
+
+    with action_col2:
+        load_clicked = st.button("Charger le client", key="load_client_button", use_container_width=True)
+
+    with action_col3:
+        save_clicked = st.button(
+            "Enregistrer pour la décision",
+            key="save_client_button_top",
+            use_container_width=True,
+        )
+
+    # ----------------------------
+    # Chargement du client
+    # ----------------------------
+    if load_clicked:
         match = clients_df.loc[clients_df["client_id"].astype(str) == str(client_id_input).strip()]
         if match.empty:
             st.error(f"Client introuvable : {client_id_input}")
@@ -199,14 +219,15 @@ with tab_client:
         st.stop()
 
     base_values = st.session_state.current_client_features.copy()
-
-    # ----------------------------
-    # Formulaire prérempli
-    # ----------------------------
-    col_left, col_right = st.columns(2)
     edited = dict(base_values)
 
-    with col_left:
+    # ----------------------------
+    # Formulaire compact 3 colonnes
+    # ----------------------------
+    col1, col2, col3 = st.columns(3)
+
+    # ----- Colonne 1 -----
+    with col1:
         st.markdown("### Identité")
         edited["age"] = st.number_input(
             "Âge",
@@ -227,7 +248,6 @@ with tab_client:
         )
         edited["genre"] = GENDER_MAP[genre_ui]
 
-        st.markdown("### Situation")
         marital_options = ["Célibataire", "Marié(e)", "Divorcé(e)", "Veuf/Veuve", "Autre"]
         marital_default = str(base_values.get("statut_marital", "Célibataire"))
         marital_index = marital_options.index(marital_default) if marital_default in marital_options else 0
@@ -238,7 +258,6 @@ with tab_client:
             key=f"statut_marital_input_{st.session_state.current_client_id}",
         )
 
-        st.markdown("### Localisation / Poste")
         edited["departement"] = str(
             st.text_input(
                 "Département",
@@ -246,15 +265,15 @@ with tab_client:
                 key=f"departement_input_{st.session_state.current_client_id}",
             )
         )
+
         edited["poste"] = str(
             st.text_input(
-                "Poste / Intitulé",
+                "Poste",
                 value=str(base_values.get("poste", "Employé")),
                 key=f"poste_input_{st.session_state.current_client_id}",
             )
         )
 
-        st.markdown("### Revenus & charge")
         edited["revenu_mensuel"] = st.number_input(
             "Revenu mensuel (€)",
             min_value=0.0,
@@ -262,16 +281,18 @@ with tab_client:
             step=100.0,
             key=f"revenu_input_{st.session_state.current_client_id}",
         )
+
         edited["distance_domicile_travail"] = st.number_input(
-            "Distance domicile–travail (km)",
+            "Distance domicile-travail",
             min_value=0.0,
             value=float(base_values.get("distance_domicile_travail", 10.0)),
             step=1.0,
             key=f"distance_input_{st.session_state.current_client_id}",
         )
 
-    with col_right:
-        st.markdown("### Éducation / déplacements")
+    # ----- Colonne 2 -----
+    with col2:
+        st.markdown("### Éducation / carrière")
         edu_value = int(base_values.get("niveau_education", 2))
         edu_default = INV_EDU_MAP.get(edu_value, "Licence")
         edu_options = ["Bac", "Bac+2", "Licence", "Master", "Doctorat", "Autre"]
@@ -302,23 +323,24 @@ with tab_client:
             key=f"deplacement_input_{st.session_state.current_client_id}",
         )
 
-        st.markdown("### Expérience / carrière")
         edited["nombre_experiences_precedentes"] = st.number_input(
-            "Nombre d’expériences précédentes",
+            "Expériences précédentes",
             min_value=0,
             max_value=50,
             value=int(base_values.get("nombre_experiences_precedentes", 2)),
             step=1,
             key=f"exp_prev_input_{st.session_state.current_client_id}",
         )
+
         edited["annee_experience_totale"] = st.number_input(
-            "Années d’expérience totale",
+            "Expérience totale",
             min_value=0,
             max_value=60,
             value=int(base_values.get("annee_experience_totale", 8)),
             step=1,
             key=f"exp_tot_input_{st.session_state.current_client_id}",
         )
+
         edited["annees_dans_l_entreprise"] = st.number_input(
             "Années dans l’entreprise",
             min_value=0,
@@ -327,24 +349,27 @@ with tab_client:
             step=1,
             key=f"exp_entreprise_input_{st.session_state.current_client_id}",
         )
+
         edited["annees_dans_le_poste_actuel"] = st.number_input(
-            "Années dans le poste actuel",
+            "Années dans le poste",
             min_value=0,
             max_value=60,
             value=int(base_values.get("annees_dans_le_poste_actuel", 2)),
             step=1,
             key=f"exp_poste_input_{st.session_state.current_client_id}",
         )
+
         edited["annes_sous_responsable_actuel"] = st.number_input(
-            "Années sous le responsable actuel",
+            "Années sous responsable",
             min_value=0,
             max_value=60,
             value=int(base_values.get("annes_sous_responsable_actuel", 2)),
             step=1,
             key=f"responsable_input_{st.session_state.current_client_id}",
         )
+
         edited["annees_depuis_la_derniere_promotion"] = st.number_input(
-            "Années depuis la dernière promotion",
+            "Années depuis promotion",
             min_value=0,
             max_value=60,
             value=int(base_values.get("annees_depuis_la_derniere_promotion", 1)),
@@ -352,25 +377,29 @@ with tab_client:
             key=f"promotion_input_{st.session_state.current_client_id}",
         )
 
-        st.markdown("### Organisation / formation")
+    # ----- Colonne 3 -----
+    with col3:
+        st.markdown("### Organisation / performance")
         edited["niveau_hierarchique_poste"] = st.number_input(
-            "Niveau hiérarchique du poste",
+            "Niveau hiérarchique",
             min_value=1,
             max_value=10,
             value=int(base_values.get("niveau_hierarchique_poste", 2)),
             step=1,
             key=f"hierarchie_input_{st.session_state.current_client_id}",
         )
+
         edited["nb_formations_suivies"] = st.number_input(
-            "Nombre de formations suivies",
+            "Formations suivies",
             min_value=0,
             max_value=100,
             value=int(base_values.get("nb_formations_suivies", 1)),
             step=1,
             key=f"formations_input_{st.session_state.current_client_id}",
         )
+
         edited["nombre_participation_pee"] = st.number_input(
-            "Nombre de participations PEE",
+            "Participations PEE",
             min_value=0,
             max_value=100,
             value=int(base_values.get("nombre_participation_pee", 0)),
@@ -378,59 +407,61 @@ with tab_client:
             key=f"pee_input_{st.session_state.current_client_id}",
         )
 
-    st.divider()
-
-    sat_cols = st.columns(2)
-    with sat_cols[0]:
-        st.markdown("### Satisfaction")
-        edited["satisfaction_employee_environnement"] = st.slider(
-            "Satisfaction environnement",
-            1, 4, int(base_values.get("satisfaction_employee_environnement", 3)),
-            key=f"sat_env_input_{st.session_state.current_client_id}",
-        )
-        edited["satisfaction_employee_nature_travail"] = st.slider(
-            "Satisfaction nature du travail",
-            1, 4, int(base_values.get("satisfaction_employee_nature_travail", 3)),
-            key=f"sat_travail_input_{st.session_state.current_client_id}",
-        )
-        edited["satisfaction_employee_equilibre_pro_perso"] = st.slider(
-            "Satisfaction équilibre pro/perso",
-            1, 4, int(base_values.get("satisfaction_employee_equilibre_pro_perso", 3)),
-            key=f"sat_eq_input_{st.session_state.current_client_id}",
-        )
-
-    with sat_cols[1]:
-        st.markdown("### Performance / salaire")
-        edited["satisfaction_employee_equipe"] = st.slider(
-            "Satisfaction équipe",
-            1, 4, int(base_values.get("satisfaction_employee_equipe", 3)),
-            key=f"sat_equipe_input_{st.session_state.current_client_id}",
-        )
-        edited["note_evaluation_precedente"] = st.slider(
-            "Note évaluation précédente",
-            1, 5, int(base_values.get("note_evaluation_precedente", 3)),
-            key=f"eval_prev_input_{st.session_state.current_client_id}",
-        )
-        edited["note_evaluation_actuelle"] = st.slider(
-            "Note évaluation actuelle",
-            1, 5, int(base_values.get("note_evaluation_actuelle", 3)),
-            key=f"eval_current_input_{st.session_state.current_client_id}",
-        )
-        edited["augementation_salaire_precedente"] = st.number_input(
-            "Augmentation salaire précédente (%)",
-            min_value=0.0,
-            max_value=100.0,
-            value=float(base_values.get("augementation_salaire_precedente", 5.0)),
-            step=0.5,
-            key=f"augmentation_input_{st.session_state.current_client_id}",
-        )
         edited["heure_supplementaires"] = 1 if st.checkbox(
             "Heures supplémentaires",
             value=bool(base_values.get("heure_supplementaires", 0)),
             key=f"heures_sup_input_{st.session_state.current_client_id}",
         ) else 0
 
-    if st.button("Enregistrer ce client pour la décision", type="primary", key="save_client_button"):
+        edited["augementation_salaire_precedente"] = st.number_input(
+            "Augmentation salaire (%)",
+            min_value=0.0,
+            max_value=100.0,
+            value=float(base_values.get("augementation_salaire_precedente", 5.0)),
+            step=0.5,
+            key=f"augmentation_input_{st.session_state.current_client_id}",
+        )
+
+        edited["note_evaluation_precedente"] = st.slider(
+            "Éval précédente",
+            1, 5, int(base_values.get("note_evaluation_precedente", 3)),
+            key=f"eval_prev_input_{st.session_state.current_client_id}",
+        )
+
+        edited["note_evaluation_actuelle"] = st.slider(
+            "Éval actuelle",
+            1, 5, int(base_values.get("note_evaluation_actuelle", 3)),
+            key=f"eval_current_input_{st.session_state.current_client_id}",
+        )
+
+        edited["satisfaction_employee_environnement"] = st.slider(
+            "Satisfaction environnement",
+            1, 4, int(base_values.get("satisfaction_employee_environnement", 3)),
+            key=f"sat_env_input_{st.session_state.current_client_id}",
+        )
+
+        edited["satisfaction_employee_nature_travail"] = st.slider(
+            "Satisfaction travail",
+            1, 4, int(base_values.get("satisfaction_employee_nature_travail", 3)),
+            key=f"sat_travail_input_{st.session_state.current_client_id}",
+        )
+
+        edited["satisfaction_employee_equilibre_pro_perso"] = st.slider(
+            "Équilibre pro/perso",
+            1, 4, int(base_values.get("satisfaction_employee_equilibre_pro_perso", 3)),
+            key=f"sat_eq_input_{st.session_state.current_client_id}",
+        )
+
+        edited["satisfaction_employee_equipe"] = st.slider(
+            "Satisfaction équipe",
+            1, 4, int(base_values.get("satisfaction_employee_equipe", 3)),
+            key=f"sat_equipe_input_{st.session_state.current_client_id}",
+        )
+
+    # ----------------------------
+    # Traitement du bouton save
+    # ----------------------------
+    if save_clicked:
         df_current = pd.DataFrame([edited])[feats]
         try:
             df_current = coerce_df_types(df_current)
