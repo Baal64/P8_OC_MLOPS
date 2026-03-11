@@ -120,6 +120,12 @@ def score_one_client(
                 "decision": decision,
                 "latency_ms": round(latency_ms, 3),
                 "n_features": len(features),
+                "age": features.get("age"),
+                "revenu_mensuel": features.get("revenu_mensuel"),
+                "distance_domicile_travail": features.get("distance_domicile_travail"),
+                "annee_experience_totale": features.get("annee_experience_totale"),
+                "niveau_education": features.get("niveau_education"),
+                "heure_supplementaires": features.get("heure_supplementaires"),
             }
         )
 

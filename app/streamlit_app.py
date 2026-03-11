@@ -5,7 +5,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from src.inference import expected_features, load_model, predict_proba_default
+from src.inference import expected_features, load_model, predict_proba_default, score_one_client
 
 # ---------- CONFIG ----------
 st.set_page_config(page_title="Scoring Crédit", layout="wide")
@@ -483,10 +483,13 @@ with tab_decision:
 
         try:
             df = coerce_df_types(df)
-            p_default = float(predict_proba_default(df).iloc[0])
-            decision = "REFUS" if p_default >= THRESHOLD else "ACCORD"
+            features = df.iloc[0].to_dict()
+
+            result = score_one_client(features, threshold=THRESHOLD, log=True)
+            p_default = float(result["p_default"])
+            decision = result["decision"]
+
             st.session_state.current_score = p_default
-            save_prediction_log(p_default, decision, len(feats))
         except Exception as e:
             st.error("Erreur pendant le scoring.")
             st.exception(e)
@@ -690,48 +693,40 @@ with tab_decision:
 
 # -------------------- TAB: MONITORING --------------------
 with tab_monitoring:
-    st.subheader("Monitoring")
+    st.subheader("Monitoring des prédictions")
 
     log_path = Path("logs") / "predictions.jsonl"
+
     if not log_path.exists():
-        st.info("Aucun log pour l’instant. Lance une décision dans l’onglet Décision.")
+        st.info("Aucune prédiction enregistrée pour le moment.")
     else:
+
         rows = []
-        with log_path.open("r", encoding="utf-8") as f:
+        with log_path.open() as f:
             for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    rows.append(json.loads(line))
-                except Exception:
-                    continue
+                rows.append(json.loads(line))
 
-        if not rows:
-            st.info("Logs vides ou illisibles.")
-        else:
-            df_logs = pd.DataFrame(rows)
-            st.metric("Nombre de prédictions loggées", len(df_logs))
+        df_logs = pd.DataFrame(rows)
 
-            c1, c2, c3 = st.columns(3)
+        st.metric("Nombre total de prédictions", len(df_logs))
 
-            with c1:
-                if "p_default" in df_logs.columns:
-                    st.write("**Historique du risque**")
-                    st.line_chart(df_logs["p_default"])
+        col1, col2 = st.columns(2)
 
-            with c2:
-                if "decision" in df_logs.columns:
-                    st.write("**Distribution des décisions**")
-                    st.bar_chart(df_logs["decision"].value_counts())
+        with col1:
+            st.markdown("### Distribution des scores")
+            st.histogram(df_logs["p_default"])
 
-            with c3:
-                if "n_features" in df_logs.columns:
-                    st.write("**Nombre de features utilisées**")
-                    st.line_chart(df_logs["n_features"])
+        with col2:
+            st.markdown("### Distribution des décisions")
+            st.bar_chart(df_logs["decision"].value_counts())
 
-            with st.expander("Voir les logs"):
-                st.dataframe(df_logs.tail(50))
+        st.markdown("### Evolution du score moyen")
+
+        df_logs["step"] = range(len(df_logs))
+
+        st.line_chart(
+            df_logs.set_index("step")["p_default"]
+        )
 
 # -------------------- TAB: ABOUT --------------------
 with tab_about:
