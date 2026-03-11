@@ -519,6 +519,11 @@ with tab_decision:
     # ----------------------------
     show_speedometer(p_default, threshold=THRESHOLD)
 
+    if decision == "ACCORD":
+        st.success("✅ Décision finale : ACCORD")
+    else:
+        st.error("⛔ Décision finale : REFUS")
+        
     col_a, col_b = st.columns([1, 1])
 
     with col_a:
