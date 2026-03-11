@@ -150,6 +150,9 @@ if "current_client_id" not in st.session_state:
 if "current_score" not in st.session_state:
     st.session_state.current_score = None
 
+if "current_decision" not in st.session_state:
+    st.session_state.current_decision = None
+
 
 tab_client, tab_decision, tab_monitoring, tab_about = st.tabs(
     ["👤 Client", "🧮 Décision", "📊 Monitoring", "ℹ️ Explications"]
@@ -192,13 +195,18 @@ with tab_client:
     save_clicked = False
 
     with action_col2:
-        load_clicked = st.button("Charger le client", key="load_client_button", use_container_width=True)
+        load_clicked = st.button(
+            "Charger le client", 
+            key="load_client_button", 
+            use_container_width=True
+        )
 
     with action_col3:
-        save_clicked = st.button(
-            "Enregistrer pour la décision",
-            key="save_client_button_top",
+        calculate_clicked = st.button(
+            "Calculer la décision",
+            key="calculate_decision_button_top",
             use_container_width=True,
+            type="primary"
         )
 
     # ----------------------------
@@ -461,14 +469,24 @@ with tab_client:
     # ----------------------------
     # Traitement du bouton save
     # ----------------------------
-    if save_clicked:
+    if calculate_clicked:
         df_current = pd.DataFrame([edited])[feats]
         try:
             df_current = coerce_df_types(df_current)
             st.session_state.current_client_features = df_current.iloc[0].to_dict()
-            st.success("Client enregistré. Passe à l’onglet Décision.")
+
+            result = score_one_client(
+                st.session_state.current_client_features,
+                threshold=THRESHOLD,
+                log=True,
+            )
+
+            st.session_state.current_score = float(result["p_default"])
+            st.session_state.current_decision = result["decision"]
+
+            st.success("Décision calculée. Va dans l’onglet Décision pour voir le résultat.")
         except Exception as e:
-            st.error("Erreur de typage sur les données du client.")
+            st.error("Erreur pendant le calcul de la décision.")
             st.exception(e)
 
 # -------------------- TAB: DECISION --------------------
@@ -477,219 +495,217 @@ with tab_decision:
 
     if st.session_state.current_client_features is None:
         st.info("Aucun client sélectionné. Va d’abord dans l’onglet Client.")
+        st.stop()
+
+    if st.session_state.current_score is None or st.session_state.current_decision is None:
+        st.info("Aucune décision calculée. Va dans l’onglet Client puis clique sur 'Calculer la décision'.")
+        st.stop()
+
+    feats = expected_features()
+    df = pd.DataFrame([st.session_state.current_client_features])[feats]
+
+    try:
+        df = coerce_df_types(df)
+    except Exception as e:
+        st.error("Erreur de typage sur les données du client.")
+        st.exception(e)
+        st.stop()
+
+    p_default = st.session_state.current_score
+    decision = st.session_state.current_decision
+
+    # ----------------------------
+    # Résultat principal
+    # ----------------------------
+    show_speedometer(p_default, threshold=THRESHOLD)
+
+    col_a, col_b = st.columns([1, 1])
+
+    with col_a:
+        st.markdown("### Résultat")
+        st.write(f"**Client :** {st.session_state.current_client_id}")
+        st.write(f"**Décision (seuil {THRESHOLD:.2f}) :** {decision}")
+
+        level, tone = risk_level(p_default)
+        if tone == "success":
+            st.success(f"✅ {level}")
+        elif tone == "warning":
+            st.warning(f"⚠️ {level}")
+        else:
+            st.error(f"⛔ {level}")
+
+        st.write(f"**Probabilité de défaut estimée :** {p_default:.2%}")
+        st.caption("Barre sombre = risque estimé • Trait blanc = seuil de décision")
+
+    with col_b:
+        st.markdown("### Récapitulatif client")
+        recap_cols = ["age", "revenu_mensuel", "poste", "statut_marital", "annee_experience_totale"]
+        recap_cols = [c for c in recap_cols if c in df.columns]
+        st.dataframe(df[recap_cols], use_container_width=True)
+
+    st.divider()
+    st.markdown("## Visualisations")
+
+    # ----------------------------
+    # Préparer la population de référence
+    # ----------------------------
+    clients_df = load_clients()
+    df_ref = clients_df.copy()
+
+    if "client_id" in df_ref.columns:
+        df_ref_no_id = df_ref.drop(columns=["client_id"])
     else:
-        feats = expected_features()
-        df = pd.DataFrame([st.session_state.current_client_features])[feats]
+        df_ref_no_id = df_ref.copy()
 
-        try:
-            df = coerce_df_types(df)
-            features = df.iloc[0].to_dict()
+    try:
+        df_ref_no_id = df_ref_no_id[feats]
+        df_ref_no_id = coerce_df_types(df_ref_no_id)
+        ref_scores = predict_proba_default(df_ref_no_id)
+    except Exception:
+        ref_scores = None
 
-            result = score_one_client(features, threshold=THRESHOLD, log=True)
-            p_default = float(result["p_default"])
-            decision = result["decision"]
+    g1, g2 = st.columns(2)
 
-            st.session_state.current_score = p_default
-        except Exception as e:
-            st.error("Erreur pendant le scoring.")
-            st.exception(e)
-            st.stop()
+    # ----------------------------
+    # Graphique 1 : position du client dans la distribution des scores
+    # ----------------------------
+    with g1:
+        st.markdown("### 1. Position du client dans la population")
 
-        # ----------------------------
-        # Résultat principal
-        # ----------------------------
-        show_speedometer(p_default, threshold=THRESHOLD)
+        if ref_scores is not None and len(ref_scores) > 0:
+            fig_dist = go.Figure()
 
-        col_a, col_b = st.columns([1, 1])
-
-        with col_a:
-            st.markdown("### Résultat")
-            st.write(f"**Client :** {st.session_state.current_client_id}")
-            st.write(f"**Décision (seuil {THRESHOLD:.2f}) :** {decision}")
-
-            level, tone = risk_level(p_default)
-            if tone == "success":
-                st.success(f"✅ {level}")
-            elif tone == "warning":
-                st.warning(f"⚠️ {level}")
-            else:
-                st.error(f"⛔ {level}")
-
-            st.write(f"**Probabilité de défaut estimée :** {p_default:.2%}")
-            st.caption("Barre sombre = risque estimé • Trait blanc = seuil de décision")
-
-        with col_b:
-            st.markdown("### Récapitulatif client")
-            recap_cols = ["age", "revenu_mensuel", "poste", "statut_marital", "annee_experience_totale"]
-            recap_cols = [c for c in recap_cols if c in df.columns]
-            st.dataframe(df[recap_cols])
-
-        st.divider()
-        st.markdown("## Visualisations")
-
-        # ----------------------------
-        # Préparer la population de référence
-        # ----------------------------
-        clients_df = load_clients()
-        df_ref = clients_df.copy()
-
-        # on retire client_id si présent
-        if "client_id" in df_ref.columns:
-            df_ref_no_id = df_ref.drop(columns=["client_id"])
-        else:
-            df_ref_no_id = df_ref.copy()
-
-        try:
-            df_ref_no_id = df_ref_no_id[feats]
-            df_ref_no_id = coerce_df_types(df_ref_no_id)
-            ref_scores = predict_proba_default(df_ref_no_id)
-        except Exception:
-            ref_scores = None
-
-        g1, g2 = st.columns(2)
-
-        # ----------------------------
-        # Graphique 1 : position du client dans la distribution des scores
-        # ----------------------------
-        with g1:
-            st.markdown("### 1. Position du client dans la population")
-
-            if ref_scores is not None and len(ref_scores) > 0:
-                fig_dist = go.Figure()
-
-                fig_dist.add_trace(
-                    go.Histogram(
-                        x=ref_scores,
-                        nbinsx=15,
-                        name="Population de démo",
-                        marker_color="#7ed321",
-                        opacity=0.75,
-                    )
-                )
-
-                fig_dist.add_vline(
-                    x=p_default,
-                    line_width=4,
-                    line_dash="dash",
-                    line_color="red",
-                    annotation_text="Client courant",
-                    annotation_position="top right",
-                )
-
-                fig_dist.update_layout(
-                    xaxis_title="Probabilité de défaut",
-                    yaxis_title="Nombre de clients",
-                    bargap=0.1,
-                    height=350,
-                    showlegend=False,
-                )
-
-                st.plotly_chart(fig_dist, use_container_width=True)
-            else:
-                st.info("Impossible de calculer la distribution de référence.")
-
-        # ----------------------------
-        # Graphique 2 : comparaison client vs moyenne
-        # ----------------------------
-        with g2:
-            st.markdown("### 2. Profil relatif à la population")
-
-            compare_vars = [
-                "age",
-                "revenu_mensuel",
-                "annee_experience_totale",
-                "distance_domicile_travail",
-            ]
-            compare_vars = [c for c in compare_vars if c in df.columns and c in df_ref_no_id.columns]
-
-            if compare_vars:
-
-                client_vals = df[compare_vars].iloc[0]
-                mean_vals = df_ref_no_id[compare_vars].mean()
-
-                # normalisation par la moyenne
-                relative_vals = client_vals / mean_vals
-
-                fig_compare = go.Figure()
-
-                fig_compare.add_trace(
-                    go.Bar(
-                        x=compare_vars,
-                        y=relative_vals.values,
-                        marker_color="#0b1f2a",
-                    )
-                )
-
-                fig_compare.add_hline(
-                    y=1,
-                    line_dash="dash",
-                    line_color="red",
-                    annotation_text="Moyenne population",
-                    annotation_position="top left",
-                )
-
-                fig_compare.update_layout(
-                    yaxis_title="Indice (1 = moyenne)",
-                    height=350,
-                )
-
-                st.plotly_chart(fig_compare, use_container_width=True)
-
-            else:
-                st.info("Variables de comparaison indisponibles.")
-
-        st.divider()
-
-        # ----------------------------
-        # Graphique 3 : radar du profil
-        # ----------------------------
-        st.markdown("### 3. Radar du profil : satisfaction / performance")
-
-        radar_vars = [
-            "satisfaction_employee_environnement",
-            "satisfaction_employee_equipe",
-            "satisfaction_employee_equilibre_pro_perso",
-            "note_evaluation_precedente",
-            "note_evaluation_actuelle",
-        ]
-        radar_vars = [c for c in radar_vars if c in df.columns]
-
-        if radar_vars:
-            radar_vals = df[radar_vars].iloc[0].tolist()
-            radar_labels = [
-                "Env.",
-                "Équipe",
-                "Équilibre",
-                "Éval. préc.",
-                "Éval. actuelle",
-            ][: len(radar_vars)]
-
-            fig_radar = go.Figure()
-
-            fig_radar.add_trace(
-                go.Scatterpolar(
-                    r=radar_vals,
-                    theta=radar_labels,
-                    fill="toself",
-                    name="Client",
-                    line_color="#0b1f2a",
+            fig_dist.add_trace(
+                go.Histogram(
+                    x=ref_scores,
+                    nbinsx=15,
+                    name="Population de démo",
+                    marker_color="#7ed321",
+                    opacity=0.75,
                 )
             )
 
-            fig_radar.update_layout(
-                polar=dict(
-                    radialaxis=dict(
-                        visible=True,
-                        range=[0, 5],
-                    )
-                ),
+            fig_dist.add_vline(
+                x=p_default,
+                line_width=4,
+                line_dash="dash",
+                line_color="red",
+                annotation_text="Client courant",
+                annotation_position="top right",
+            )
+
+            fig_dist.update_layout(
+                xaxis_title="Probabilité de défaut",
+                yaxis_title="Nombre de clients",
+                bargap=0.1,
+                height=350,
                 showlegend=False,
-                height=450,
             )
 
-            st.plotly_chart(fig_radar, use_container_width=True)
+            st.plotly_chart(fig_dist, use_container_width=True)
         else:
-            st.info("Variables radar indisponibles.")
+            st.info("Impossible de calculer la distribution de référence.")
+
+    # ----------------------------
+    # Graphique 2 : profil relatif à la population
+    # ----------------------------
+    with g2:
+        st.markdown("### 2. Profil relatif à la population")
+
+        compare_vars = [
+            "age",
+            "revenu_mensuel",
+            "annee_experience_totale",
+            "distance_domicile_travail",
+        ]
+        compare_vars = [c for c in compare_vars if c in df.columns and c in df_ref_no_id.columns]
+
+        if compare_vars:
+            client_vals = df[compare_vars].iloc[0]
+            mean_vals = df_ref_no_id[compare_vars].mean()
+
+            # normalisation par la moyenne
+            relative_vals = client_vals / mean_vals
+
+            fig_compare = go.Figure()
+
+            fig_compare.add_trace(
+                go.Bar(
+                    x=compare_vars,
+                    y=relative_vals.values,
+                    marker_color="#0b1f2a",
+                )
+            )
+
+            fig_compare.add_hline(
+                y=1,
+                line_dash="dash",
+                line_color="red",
+                annotation_text="Moyenne population",
+                annotation_position="top left",
+            )
+
+            fig_compare.update_layout(
+                yaxis_title="Indice (1 = moyenne)",
+                height=350,
+            )
+
+            st.plotly_chart(fig_compare, use_container_width=True)
+        else:
+            st.info("Variables de comparaison indisponibles.")
+
+    st.divider()
+
+    # ----------------------------
+    # Graphique 3 : radar du profil
+    # ----------------------------
+    st.markdown("### 3. Radar du profil : satisfaction / performance")
+
+    radar_vars = [
+        "satisfaction_employee_environnement",
+        "satisfaction_employee_equipe",
+        "satisfaction_employee_equilibre_pro_perso",
+        "note_evaluation_precedente",
+        "note_evaluation_actuelle",
+    ]
+    radar_vars = [c for c in radar_vars if c in df.columns]
+
+    if radar_vars:
+        radar_vals = df[radar_vars].iloc[0].tolist()
+        radar_labels = [
+            "Env.",
+            "Équipe",
+            "Équilibre",
+            "Éval. préc.",
+            "Éval. actuelle",
+        ][: len(radar_vars)]
+
+        fig_radar = go.Figure()
+
+        fig_radar.add_trace(
+            go.Scatterpolar(
+                r=radar_vals,
+                theta=radar_labels,
+                fill="toself",
+                name="Client",
+                line_color="#0b1f2a",
+            )
+        )
+
+        fig_radar.update_layout(
+            polar=dict(
+                radialaxis=dict(
+                    visible=True,
+                    range=[0, 5],
+                )
+            ),
+            showlegend=False,
+            height=450,
+        )
+
+        st.plotly_chart(fig_radar, use_container_width=True)
+    else:
+        st.info("Variables radar indisponibles.")
 
 # -------------------- TAB: MONITORING --------------------
 with tab_monitoring:
