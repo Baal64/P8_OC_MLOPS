@@ -714,7 +714,9 @@ with tab_monitoring:
 
         with col1:
             st.markdown("### Distribution des scores")
-            st.histogram(df_logs["p_default"])
+            hist = pd.cut(df_logs["p_default"], bins=10).value_counts().sort_index()
+            hist.index = hist.index.astype(str)
+            st.bar_chart(hist)
 
         with col2:
             st.markdown("### Distribution des décisions")
