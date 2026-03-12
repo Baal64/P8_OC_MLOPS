@@ -5,6 +5,8 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+import numpy as np
+
 from src.inference import expected_features, load_model, predict_proba_default, score_one_client
 
 # ---------- CONFIG ----------
@@ -138,6 +140,40 @@ def save_prediction_log(p_default: float, decision: str, n_features: int) -> Non
     except Exception:
         pass
 
+
+def compute_psi(expected, actual, bins=10):
+    expected = np.asarray(expected, dtype=float)
+    actual = np.asarray(actual, dtype=float)
+
+    if len(expected) == 0 or len(actual) == 0:
+        return np.nan
+
+    breakpoints = np.linspace(0, 100, bins + 1)
+    breakpoints = np.percentile(expected, breakpoints)
+
+    # éviter des bins identiques si variable peu variée
+    breakpoints = np.unique(breakpoints)
+    if len(breakpoints) < 2:
+        return 0.0
+
+    expected_counts = np.histogram(expected, bins=breakpoints)[0] / len(expected)
+    actual_counts = np.histogram(actual, bins=breakpoints)[0] / len(actual)
+
+    psi = np.sum(
+        (actual_counts - expected_counts)
+        * np.log((actual_counts + 1e-6) / (expected_counts + 1e-6))
+    )
+
+    return float(psi)
+
+def drift_status(psi_value: float) -> tuple[str, str]:
+    if np.isnan(psi_value):
+        return "Indisponible", "info"
+    if psi_value < 0.10:
+        return "Stable", "success"
+    if psi_value < 0.25:
+        return "Drift modéré", "warning"
+    return "Drift important", "error"
 
 warmup()
 
@@ -523,7 +559,7 @@ with tab_decision:
         st.success("✅ Décision finale : ACCORD")
     else:
         st.error("⛔ Décision finale : REFUS")
-        
+
     col_a, col_b = st.columns([1, 1])
 
     with col_a:
@@ -750,6 +786,73 @@ with tab_monitoring:
         st.line_chart(
             df_logs.set_index("step")["p_default"]
         )
+
+        st.divider()
+        st.markdown("### Santé des données / Drift global")
+
+        train_df = load_clients()
+
+        drift_features = [
+            "age",
+            "revenu_mensuel",
+            "distance_domicile_travail",
+            "annee_experience_totale",
+        ]
+
+        available_drift_features = [
+            c for c in drift_features
+            if c in train_df.columns and c in df_logs.columns
+        ]
+
+        if not available_drift_features:
+            st.info("Pas assez de variables loggées pour calculer le drift.")
+        else:
+            psi_rows = []
+            for col in available_drift_features:
+                try:
+                    psi_val = compute_psi(train_df[col].dropna(), df_logs[col].dropna())
+                    psi_rows.append({"feature": col, "psi": psi_val})
+                except Exception:
+                    continue
+
+            if not psi_rows:
+                st.info("Impossible de calculer le drift sur les variables disponibles.")
+            else:
+                psi_df = pd.DataFrame(psi_rows)
+                global_psi = psi_df["psi"].mean()
+
+                status_text, status_type = drift_status(global_psi)
+
+                st.metric("PSI global moyen", f"{global_psi:.3f}")
+
+                if status_type == "success":
+                    st.success(f"🟢 {status_text}")
+                elif status_type == "warning":
+                    st.warning(f"🟠 {status_text}")
+                elif status_type == "error":
+                    st.error(f"🔴 {status_text}")
+                else:
+                    st.info(status_text)
+
+                st.markdown("#### Détail par variable")
+                st.dataframe(psi_df, use_container_width=True)
+
+                fig_psi = go.Figure()
+                fig_psi.add_trace(
+                    go.Bar(
+                        x=psi_df["feature"],
+                        y=psi_df["psi"],
+                        marker_color="#0b1f2a",
+                    )
+                )
+                fig_psi.add_hline(y=0.10, line_dash="dash", line_color="orange")
+                fig_psi.add_hline(y=0.25, line_dash="dash", line_color="red")
+                fig_psi.update_layout(
+                    yaxis_title="PSI",
+                    xaxis_title="Variable",
+                    height=350,
+                )
+                st.plotly_chart(fig_psi, use_container_width=True)
 
 # -------------------- TAB: ABOUT --------------------
 with tab_about:
