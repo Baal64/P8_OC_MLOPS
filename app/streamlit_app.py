@@ -745,6 +745,7 @@ with tab_decision:
             "revenu_mensuel",
             "distance_domicile_travail",
             "annee_experience_totale",
+            "annees_dans_l_entreprise",
             "nb_formations_suivies",
         ]
         actionable_vars = [
@@ -848,8 +849,8 @@ with tab_decision:
             st.plotly_chart(fig_explain, use_container_width=True)
 
             st.caption(
-                "Plus la barre est élevée, plus la variable s'écarte défavorablement de la population de référence. "
-                "Cela permet d'expliquer de manière synthétique pourquoi le dossier est pénalisé."
+                "Les graphiques comparent le profil du client à une population de référence. "
+                "Ils permettent d'identifier les variables pouvant influencer le score de risque."
             )
         else:
             st.info("Variables explicatives indisponibles.")
@@ -1056,7 +1057,7 @@ with tab_monitoring:
 
             with st.expander("Voir les logs (50 derniers)"):
                 st.dataframe(df_logs.tail(50), use_container_width=True)
-                
+
 # -------------------- TAB: ABOUT --------------------
 with tab_about:
     st.subheader("Explications")
