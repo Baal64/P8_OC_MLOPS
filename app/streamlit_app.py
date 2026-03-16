@@ -7,12 +7,20 @@ import streamlit as st
 
 import numpy as np
 
-from src.inference import expected_features, load_model, predict_proba_default, score_one_client
+from src.inference import (
+    expected_features,
+    load_model,
+    predict_proba_default,
+    score_one_client,
+)
 
 # ---------- CONFIG ----------
 st.set_page_config(page_title="Scoring Crédit", layout="wide")
 st.title("Scoring client – Demande de crédit")
 st.caption("Démo MLOps • Streamlit + Docker • Déploiement Hugging Face")
+
+if "scored_client_id" not in st.session_state:
+    st.session_state.scored_client_id = None
 
 CLIENTS_PATH = Path("data/reference/clients_demo.csv")
 THRESHOLD = 0.50
@@ -93,7 +101,10 @@ def show_speedometer(p_default: float, threshold: float = 0.5) -> None:
             mode="gauge+number",
             value=p_default * 100,
             number={"suffix": "%", "font": {"size": 34}},
-            title={"text": "Risque de défaut", "font": {"size": 18}},
+            title={
+                "text": f"Seuil de décision : {threshold:.2f}",
+                "font": {"size": 18},
+            },
             gauge={
                 "shape": "angular",
                 "axis": {"range": [0, 100], "tickvals": [0, 20, 40, 60, 80, 100]},
@@ -166,6 +177,7 @@ def compute_psi(expected, actual, bins=10):
 
     return float(psi)
 
+
 def drift_status(psi_value: float) -> tuple[str, str]:
     if np.isnan(psi_value):
         return "Indisponible", "info"
@@ -174,6 +186,7 @@ def drift_status(psi_value: float) -> tuple[str, str]:
     if psi_value < 0.25:
         return "Drift modéré", "warning"
     return "Drift important", "error"
+
 
 warmup()
 
@@ -232,9 +245,7 @@ with tab_client:
 
     with action_col2:
         load_clicked = st.button(
-            "Charger le client", 
-            key="load_client_button", 
-            use_container_width=True
+            "Charger le client", key="load_client_button", use_container_width=True
         )
 
     with action_col3:
@@ -242,24 +253,34 @@ with tab_client:
             "Calculer la décision",
             key="calculate_decision_button_top",
             use_container_width=True,
-            type="primary"
+            type="primary",
         )
 
     # ----------------------------
     # Chargement du client
     # ----------------------------
     if load_clicked:
-        match = clients_df.loc[clients_df["client_id"].astype(str) == str(client_id_input).strip()]
+        match = clients_df.loc[
+            clients_df["client_id"].astype(str) == str(client_id_input).strip()
+        ]
         if match.empty:
             st.error(f"Client introuvable : {client_id_input}")
         else:
             selected_row = match.iloc[0]
             st.session_state.current_client_id = str(client_id_input).strip()
-            st.session_state.current_client_features = client_to_feature_dict(selected_row, feats)
+            st.session_state.current_client_features = client_to_feature_dict(
+                selected_row, feats
+            )
+
+            st.session_state.current_score = None
+            st.session_state.current_decision = None
+
             st.success(f"Client {client_id_input} chargé.")
 
     if st.session_state.current_client_features is None:
-        st.warning("Aucun client chargé. Saisis un identifiant puis clique sur 'Charger le client'.")
+        st.warning(
+            "Aucun client chargé. Saisis un identifiant puis clique sur 'Charger le client'."
+        )
         st.stop()
 
     base_values = st.session_state.current_client_features.copy()
@@ -292,9 +313,19 @@ with tab_client:
         )
         edited["genre"] = GENDER_MAP[genre_ui]
 
-        marital_options = ["Célibataire", "Marié(e)", "Divorcé(e)", "Veuf/Veuve", "Autre"]
+        marital_options = [
+            "Célibataire",
+            "Marié(e)",
+            "Divorcé(e)",
+            "Veuf/Veuve",
+            "Autre",
+        ]
         marital_default = str(base_values.get("statut_marital", "Célibataire"))
-        marital_index = marital_options.index(marital_default) if marital_default in marital_options else 0
+        marital_index = (
+            marital_options.index(marital_default)
+            if marital_default in marital_options
+            else 0
+        )
         edited["statut_marital"] = st.selectbox(
             "Statut marital",
             marital_options,
@@ -359,7 +390,11 @@ with tab_client:
 
         travel_options = ["Jamais", "Rare", "Fréquent"]
         travel_default = str(base_values.get("frequence_deplacement", "Jamais"))
-        travel_index = travel_options.index(travel_default) if travel_default in travel_options else 0
+        travel_index = (
+            travel_options.index(travel_default)
+            if travel_default in travel_options
+            else 0
+        )
         edited["frequence_deplacement"] = st.selectbox(
             "Fréquence de déplacement",
             travel_options,
@@ -451,11 +486,15 @@ with tab_client:
             key=f"pee_input_{st.session_state.current_client_id}",
         )
 
-        edited["heure_supplementaires"] = 1 if st.checkbox(
-            "Heures supplémentaires",
-            value=bool(base_values.get("heure_supplementaires", 0)),
-            key=f"heures_sup_input_{st.session_state.current_client_id}",
-        ) else 0
+        edited["heure_supplementaires"] = (
+            1
+            if st.checkbox(
+                "Heures supplémentaires",
+                value=bool(base_values.get("heure_supplementaires", 0)),
+                key=f"heures_sup_input_{st.session_state.current_client_id}",
+            )
+            else 0
+        )
 
         edited["augementation_salaire_precedente"] = st.number_input(
             "Augmentation salaire (%)",
@@ -468,37 +507,49 @@ with tab_client:
 
         edited["note_evaluation_precedente"] = st.slider(
             "Éval précédente",
-            1, 5, int(base_values.get("note_evaluation_precedente", 3)),
+            1,
+            5,
+            int(base_values.get("note_evaluation_precedente", 3)),
             key=f"eval_prev_input_{st.session_state.current_client_id}",
         )
 
         edited["note_evaluation_actuelle"] = st.slider(
             "Éval actuelle",
-            1, 5, int(base_values.get("note_evaluation_actuelle", 3)),
+            1,
+            5,
+            int(base_values.get("note_evaluation_actuelle", 3)),
             key=f"eval_current_input_{st.session_state.current_client_id}",
         )
 
         edited["satisfaction_employee_environnement"] = st.slider(
             "Satisfaction environnement",
-            1, 4, int(base_values.get("satisfaction_employee_environnement", 3)),
+            1,
+            4,
+            int(base_values.get("satisfaction_employee_environnement", 3)),
             key=f"sat_env_input_{st.session_state.current_client_id}",
         )
 
         edited["satisfaction_employee_nature_travail"] = st.slider(
             "Satisfaction travail",
-            1, 4, int(base_values.get("satisfaction_employee_nature_travail", 3)),
+            1,
+            4,
+            int(base_values.get("satisfaction_employee_nature_travail", 3)),
             key=f"sat_travail_input_{st.session_state.current_client_id}",
         )
 
         edited["satisfaction_employee_equilibre_pro_perso"] = st.slider(
             "Équilibre pro/perso",
-            1, 4, int(base_values.get("satisfaction_employee_equilibre_pro_perso", 3)),
+            1,
+            4,
+            int(base_values.get("satisfaction_employee_equilibre_pro_perso", 3)),
             key=f"sat_eq_input_{st.session_state.current_client_id}",
         )
 
         edited["satisfaction_employee_equipe"] = st.slider(
             "Satisfaction équipe",
-            1, 4, int(base_values.get("satisfaction_employee_equipe", 3)),
+            1,
+            4,
+            int(base_values.get("satisfaction_employee_equipe", 3)),
             key=f"sat_equipe_input_{st.session_state.current_client_id}",
         )
 
@@ -519,8 +570,11 @@ with tab_client:
 
             st.session_state.current_score = float(result["p_default"])
             st.session_state.current_decision = result["decision"]
+            st.session_state.scored_client_id = st.session_state.current_client_id
 
-            st.success("Décision calculée. Va dans l’onglet Décision pour voir le résultat.")
+            st.success(
+                "Décision calculée. Va dans l’onglet Décision pour voir le résultat."
+            )
         except Exception as e:
             st.error("Erreur pendant le calcul de la décision.")
             st.exception(e)
@@ -533,10 +587,19 @@ with tab_decision:
         st.info("Aucun client sélectionné. Va d’abord dans l’onglet Client.")
         st.stop()
 
-    if st.session_state.current_score is None or st.session_state.current_decision is None:
-        st.info("Aucune décision calculée. Va dans l’onglet Client puis clique sur 'Calculer la décision'.")
+    if (
+        st.session_state.current_score is None
+        or st.session_state.current_decision is None
+    ):
+        st.info(
+            "Aucune décision calculée. Va dans l’onglet Client puis clique sur 'Calculer la décision'."
+        )
         st.stop()
 
+    if st.session_state.scored_client_id != st.session_state.current_client_id:
+        st.info("Le client courant a changé. Clique sur 'Calculer la décision' dans l’onglet Client.")
+        st.stop() 
+    
     feats = expected_features()
     df = pd.DataFrame([st.session_state.current_client_features])[feats]
 
@@ -580,38 +643,41 @@ with tab_decision:
 
     with col_b:
         st.markdown("### Récapitulatif client")
-        recap_cols = ["age", "revenu_mensuel", "poste", "statut_marital", "annee_experience_totale"]
+        recap_cols = [
+            "age",
+            "revenu_mensuel",
+            "poste",
+            "statut_marital",
+            "annee_experience_totale",
+        ]
         recap_cols = [c for c in recap_cols if c in df.columns]
         st.dataframe(df[recap_cols], use_container_width=True)
 
-    st.divider()
-    st.markdown("## Visualisations")
+        st.divider()
+        st.markdown("## Visualisations")
 
-    # ----------------------------
-    # Préparer la population de référence
-    # ----------------------------
-    clients_df = load_clients()
-    df_ref = clients_df.copy()
+        # ----------------------------
+        # Population de référence
+        # ----------------------------
+        clients_df = load_clients()
+        df_ref = clients_df.copy()
 
-    if "client_id" in df_ref.columns:
-        df_ref_no_id = df_ref.drop(columns=["client_id"])
-    else:
-        df_ref_no_id = df_ref.copy()
+        if "client_id" in df_ref.columns:
+            df_ref_no_id = df_ref.drop(columns=["client_id"])
+        else:
+            df_ref_no_id = df_ref.copy()
 
-    try:
-        df_ref_no_id = df_ref_no_id[feats]
-        df_ref_no_id = coerce_df_types(df_ref_no_id)
-        ref_scores = predict_proba_default(df_ref_no_id)
-    except Exception:
-        ref_scores = None
+        try:
+            df_ref_no_id = df_ref_no_id[feats]
+            df_ref_no_id = coerce_df_types(df_ref_no_id)
+            ref_scores = predict_proba_default(df_ref_no_id)
+        except Exception:
+            ref_scores = None
 
-    g1, g2 = st.columns(2)
-
-    # ----------------------------
-    # Graphique 1 : position du client dans la distribution des scores
-    # ----------------------------
-    with g1:
-        st.markdown("### 1. Position du client dans la population")
+        # ============================
+        # Graphique 1 : position du client
+        # ============================
+        st.markdown("### 1. Position du client dans la population de référence")
 
         if ref_scores is not None and len(ref_scores) > 0:
             fig_dist = go.Figure()
@@ -620,16 +686,25 @@ with tab_decision:
                 go.Histogram(
                     x=ref_scores,
                     nbinsx=15,
-                    name="Population de démo",
                     marker_color="#7ed321",
                     opacity=0.75,
+                    name="Population de référence",
                 )
+            )
+
+            fig_dist.add_vline(
+                x=THRESHOLD,
+                line_width=3,
+                line_dash="dash",
+                line_color="white",
+                annotation_text=f"Seuil {THRESHOLD:.3f}",
+                annotation_position="top left",
             )
 
             fig_dist.add_vline(
                 x=p_default,
                 line_width=4,
-                line_dash="dash",
+                line_dash="solid",
                 line_color="red",
                 annotation_text="Client courant",
                 annotation_position="top right",
@@ -644,109 +719,135 @@ with tab_decision:
             )
 
             st.plotly_chart(fig_dist, use_container_width=True)
+
+            if abs(p_default - THRESHOLD) < 0.05:
+                st.warning(
+                    "Le dossier est proche du seuil de décision : une légère amélioration du profil pourrait faire évoluer la décision."
+                )
+            elif p_default >= THRESHOLD:
+                st.error("Le dossier se situe nettement dans la zone de refus.")
+            else:
+                st.success("Le dossier se situe sous le seuil de risque.")
         else:
             st.info("Impossible de calculer la distribution de référence.")
 
-    # ----------------------------
-    # Graphique 2 : profil relatif à la population
-    # ----------------------------
-    with g2:
-        st.markdown("### 2. Profil relatif à la population")
+        # ============================
+        # Graphique 2 : leviers d'amélioration
+        # ============================
+        st.markdown("### 2. Leviers d'amélioration du profil")
 
-        compare_vars = [
-            "age",
+        actionable_vars = [
             "revenu_mensuel",
-            "annee_experience_totale",
             "distance_domicile_travail",
+            "annee_experience_totale",
+            "nb_formations_suivies",
         ]
-        compare_vars = [c for c in compare_vars if c in df.columns and c in df_ref_no_id.columns]
+        actionable_vars = [
+            c for c in actionable_vars if c in df.columns and c in df_ref_no_id.columns
+        ]
 
-        if compare_vars:
-            client_vals = df[compare_vars].iloc[0]
-            mean_vals = df_ref_no_id[compare_vars].mean()
+        if actionable_vars:
+            client_vals = df[actionable_vars].iloc[0]
+            mean_vals = df_ref_no_id[actionable_vars].mean()
 
-            # normalisation par la moyenne
-            relative_vals = client_vals / mean_vals
-
-            fig_compare = go.Figure()
-
-            fig_compare.add_trace(
+            fig_action = go.Figure()
+            fig_action.add_trace(
                 go.Bar(
-                    x=compare_vars,
-                    y=relative_vals.values,
+                    x=actionable_vars,
+                    y=client_vals.values,
+                    name="Client",
                     marker_color="#0b1f2a",
                 )
             )
-
-            fig_compare.add_hline(
-                y=1,
-                line_dash="dash",
-                line_color="red",
-                annotation_text="Moyenne population",
-                annotation_position="top left",
+            fig_action.add_trace(
+                go.Bar(
+                    x=actionable_vars,
+                    y=mean_vals.values,
+                    name="Référence moyenne",
+                    marker_color="#f5a623",
+                )
             )
 
-            fig_compare.update_layout(
-                yaxis_title="Indice (1 = moyenne)",
+            fig_action.update_layout(
+                barmode="group",
+                yaxis_title="Valeur",
                 height=350,
             )
 
-            st.plotly_chart(fig_compare, use_container_width=True)
-        else:
-            st.info("Variables de comparaison indisponibles.")
+            st.plotly_chart(fig_action, use_container_width=True)
 
-    st.divider()
-
-    # ----------------------------
-    # Graphique 3 : radar du profil
-    # ----------------------------
-    st.markdown("### 3. Radar du profil : satisfaction / performance")
-
-    radar_vars = [
-        "satisfaction_employee_environnement",
-        "satisfaction_employee_equipe",
-        "satisfaction_employee_equilibre_pro_perso",
-        "note_evaluation_precedente",
-        "note_evaluation_actuelle",
-    ]
-    radar_vars = [c for c in radar_vars if c in df.columns]
-
-    if radar_vars:
-        radar_vals = df[radar_vars].iloc[0].tolist()
-        radar_labels = [
-            "Env.",
-            "Équipe",
-            "Équilibre",
-            "Éval. préc.",
-            "Éval. actuelle",
-        ][: len(radar_vars)]
-
-        fig_radar = go.Figure()
-
-        fig_radar.add_trace(
-            go.Scatterpolar(
-                r=radar_vals,
-                theta=radar_labels,
-                fill="toself",
-                name="Client",
-                line_color="#0b1f2a",
+            st.caption(
+                "Ce graphique met en évidence des variables potentiellement améliorables "
+                "dans un cas proche du seuil. Il s'agit d'une aide à l'interprétation, "
+                "pas d'une causalité directe du modèle."
             )
-        )
+        else:
+            st.info("Variables d'amélioration indisponibles.")
 
-        fig_radar.update_layout(
-            polar=dict(
-                radialaxis=dict(
-                    visible=True,
-                    range=[0, 5],
+        # ============================
+        # Graphique 3 : variables pénalisantes
+        # ============================
+        st.markdown("### 3. Principaux écarts défavorables du profil")
+
+        explain_vars = [
+            "revenu_mensuel",
+            "distance_domicile_travail",
+            "annee_experience_totale",
+            "annees_dans_l_entreprise",
+            "nb_formations_suivies",
+        ]
+        explain_vars = [
+            c for c in explain_vars if c in df.columns and c in df_ref_no_id.columns
+        ]
+
+        if explain_vars:
+            client_vals = df[explain_vars].iloc[0]
+            mean_vals = df_ref_no_id[explain_vars].mean()
+
+            # Écart relatif à la moyenne
+            relative_gap = (client_vals - mean_vals) / mean_vals.replace(0, 1)
+
+            # On réoriente certaines variables pour que "plus haut = plus défavorable"
+            # revenu, expérience, formations : moins que la moyenne = défavorable
+            # distance : plus que la moyenne = défavorable
+            oriented_gap = relative_gap.copy()
+            for col in [
+                "revenu_mensuel",
+                "annee_experience_totale",
+                "nb_formations_suivies",
+            ]:
+                if col in oriented_gap.index:
+                    oriented_gap[col] = -oriented_gap[col]
+
+            # distance_domicile_travail reste telle quelle
+            # age peut être laissé neutre/interprétatif
+
+            oriented_gap = oriented_gap.sort_values(ascending=False)
+
+            fig_explain = go.Figure()
+            fig_explain.add_trace(
+                go.Bar(
+                    x=oriented_gap.values,
+                    y=oriented_gap.index,
+                    orientation="h",
+                    marker_color="#d0021b",
                 )
-            ),
-            showlegend=False,
-            height=450,
-        )
+            )
 
-        st.plotly_chart(fig_radar, use_container_width=True)
-    else:
-        st.info("Variables radar indisponibles.")
+            fig_explain.update_layout(
+                xaxis_title="Écart défavorable relatif à la moyenne",
+                yaxis_title="Variable",
+                height=400,
+            )
+
+            st.plotly_chart(fig_explain, use_container_width=True)
+
+            st.caption(
+                "Plus la barre est élevée, plus la variable s'écarte défavorablement de la population de référence. "
+                "Cela permet d'expliquer de manière synthétique pourquoi le dossier est pénalisé."
+            )
+        else:
+            st.info("Variables explicatives indisponibles.")
 
 # -------------------- TAB: MONITORING --------------------
 with tab_monitoring:
@@ -783,9 +884,7 @@ with tab_monitoring:
 
         df_logs["step"] = range(len(df_logs))
 
-        st.line_chart(
-            df_logs.set_index("step")["p_default"]
-        )
+        st.line_chart(df_logs.set_index("step")["p_default"])
 
         st.divider()
         st.markdown("### Santé des données / Drift global")
@@ -800,8 +899,7 @@ with tab_monitoring:
         ]
 
         available_drift_features = [
-            c for c in drift_features
-            if c in train_df.columns and c in df_logs.columns
+            c for c in drift_features if c in train_df.columns and c in df_logs.columns
         ]
 
         if not available_drift_features:
@@ -816,7 +914,9 @@ with tab_monitoring:
                     continue
 
             if not psi_rows:
-                st.info("Impossible de calculer le drift sur les variables disponibles.")
+                st.info(
+                    "Impossible de calculer le drift sur les variables disponibles."
+                )
             else:
                 psi_df = pd.DataFrame(psi_rows)
                 global_psi = psi_df["psi"].mean()
