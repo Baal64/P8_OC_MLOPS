@@ -6,6 +6,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 import numpy as np
+import uuid
 
 from src.inference import (
     expected_features,
@@ -201,6 +202,9 @@ if "current_score" not in st.session_state:
 
 if "current_decision" not in st.session_state:
     st.session_state.current_decision = None
+
+if "session_id" not in st.session_state:
+    st.session_state.session_id = str(uuid.uuid4())
 
 
 tab_client, tab_decision, tab_monitoring, tab_about = st.tabs(
@@ -566,6 +570,7 @@ with tab_client:
                 st.session_state.current_client_features,
                 threshold=THRESHOLD,
                 log=True,
+                session_id=st.session_state.session_id
             )
 
             st.session_state.current_score = float(result["p_default"])
@@ -851,109 +856,207 @@ with tab_decision:
 
 # -------------------- TAB: MONITORING --------------------
 with tab_monitoring:
-    st.subheader("Monitoring des prédictions")
+    st.subheader("Monitoring de l'application")
 
     log_path = Path("logs") / "predictions.jsonl"
 
     if not log_path.exists():
         st.info("Aucune prédiction enregistrée pour le moment.")
     else:
-
         rows = []
-        with log_path.open() as f:
+        with log_path.open("r", encoding="utf-8") as f:
             for line in f:
-                rows.append(json.loads(line))
-
-        df_logs = pd.DataFrame(rows)
-
-        st.metric("Nombre total de prédictions", len(df_logs))
-
-        col1, col2 = st.columns(2)
-
-        with col1:
-            st.markdown("### Distribution des scores")
-            hist = pd.cut(df_logs["p_default"], bins=10).value_counts().sort_index()
-            hist.index = hist.index.astype(str)
-            st.bar_chart(hist)
-
-        with col2:
-            st.markdown("### Distribution des décisions")
-            st.bar_chart(df_logs["decision"].value_counts())
-
-        st.markdown("### Evolution du score moyen")
-
-        df_logs["step"] = range(len(df_logs))
-
-        st.line_chart(df_logs.set_index("step")["p_default"])
-
-        st.divider()
-        st.markdown("### Santé des données / Drift global")
-
-        train_df = load_clients()
-
-        drift_features = [
-            "age",
-            "revenu_mensuel",
-            "distance_domicile_travail",
-            "annee_experience_totale",
-        ]
-
-        available_drift_features = [
-            c for c in drift_features if c in train_df.columns and c in df_logs.columns
-        ]
-
-        if not available_drift_features:
-            st.info("Pas assez de variables loggées pour calculer le drift.")
-        else:
-            psi_rows = []
-            for col in available_drift_features:
+                line = line.strip()
+                if not line:
+                    continue
                 try:
-                    psi_val = compute_psi(train_df[col].dropna(), df_logs[col].dropna())
-                    psi_rows.append({"feature": col, "psi": psi_val})
+                    rows.append(json.loads(line))
                 except Exception:
                     continue
 
-            if not psi_rows:
-                st.info(
-                    "Impossible de calculer le drift sur les variables disponibles."
-                )
-            else:
-                psi_df = pd.DataFrame(psi_rows)
-                global_psi = psi_df["psi"].mean()
+        if not rows:
+            st.info("Logs vides.")
+        else:
+            df_logs = pd.DataFrame(rows)
 
-                status_text, status_type = drift_status(global_psi)
+            # Typage minimal utile
+            if "ts" in df_logs.columns:
+                df_logs["ts"] = pd.to_datetime(df_logs["ts"], errors="coerce")
 
-                st.metric("PSI global moyen", f"{global_psi:.3f}")
+            # ============================
+            # KPI principaux
+            # ============================
+            st.markdown("### Indicateurs clés")
 
-                if status_type == "success":
-                    st.success(f"🟢 {status_text}")
-                elif status_type == "warning":
-                    st.warning(f"🟠 {status_text}")
-                elif status_type == "error":
-                    st.error(f"🔴 {status_text}")
+            k1, k2, k3, k4 = st.columns(4)
+
+            with k1:
+                st.metric("Décisions calculées", len(df_logs))
+
+            with k2:
+                if "session_id" in df_logs.columns:
+                    st.metric("Nombre de sessions", df_logs["session_id"].nunique())
                 else:
-                    st.info(status_text)
+                    st.metric("Nombre de sessions", "N/A")
 
-                st.markdown("#### Détail par variable")
-                st.dataframe(psi_df, use_container_width=True)
+            with k3:
+                if "p_default" in df_logs.columns:
+                    st.metric("Risque moyen", f"{df_logs['p_default'].mean():.2%}")
+                else:
+                    st.metric("Risque moyen", "N/A")
 
-                fig_psi = go.Figure()
-                fig_psi.add_trace(
-                    go.Bar(
-                        x=psi_df["feature"],
-                        y=psi_df["psi"],
-                        marker_color="#0b1f2a",
+            with k4:
+                if "latency_ms" in df_logs.columns:
+                    st.metric("Latence moyenne", f"{df_logs['latency_ms'].mean():.1f} ms")
+                else:
+                    st.metric("Latence moyenne", "N/A")
+
+            st.divider()
+
+            # ============================
+            # Activité par session
+            # ============================
+            left, right = st.columns(2)
+
+            with left:
+                st.markdown("### Activité par session")
+
+                if "session_id" in df_logs.columns:
+                    session_counts = df_logs["session_id"].value_counts()
+
+                    st.bar_chart(session_counts)
+
+                    with st.expander("Détail activité par session"):
+                        st.dataframe(
+                            session_counts.rename_axis("session_id")
+                            .reset_index(name="nb_decisions"),
+                            use_container_width=True,
+                        )
+                else:
+                    st.info("Aucun identifiant de session disponible dans les logs.")
+
+            # ============================
+            # Répartition des décisions
+            # ============================
+            with right:
+                st.markdown("### Répartition des décisions")
+
+                if "decision" in df_logs.columns:
+                    decision_counts = df_logs["decision"].value_counts()
+
+                    fig_decision = go.Figure(
+                        data=[
+                            go.Pie(
+                                labels=decision_counts.index,
+                                values=decision_counts.values,
+                                hole=0.4,
+                            )
+                        ]
+                    )
+                    fig_decision.update_layout(height=350)
+                    st.plotly_chart(fig_decision, use_container_width=True)
+                else:
+                    st.info("Aucune colonne `decision` dans les logs.")
+
+            st.divider()
+
+            # ============================
+            # Activité dans le temps
+            # ============================
+            st.markdown("### Activité dans le temps")
+
+            if "ts" in df_logs.columns and df_logs["ts"].notna().any():
+                activity_df = (
+                    df_logs.dropna(subset=["ts"])
+                    .set_index("ts")
+                    .resample("1min")
+                    .size()
+                    .rename("nb_decisions")
+                    .reset_index()
+                )
+
+                if not activity_df.empty:
+                    fig_activity = go.Figure()
+                    fig_activity.add_trace(
+                        go.Scatter(
+                            x=activity_df["ts"],
+                            y=activity_df["nb_decisions"],
+                            mode="lines+markers",
+                            name="Décisions",
+                        )
+                    )
+                    fig_activity.update_layout(
+                        xaxis_title="Temps",
+                        yaxis_title="Nombre de décisions",
+                        height=350,
+                    )
+                    st.plotly_chart(fig_activity, use_container_width=True)
+                else:
+                    st.info("Pas assez de données temporelles pour afficher l'activité.")
+            else:
+                st.info("Aucun timestamp exploitable dans les logs.")
+
+            st.divider()
+
+            # ============================
+            # Evolution du risque
+            # ============================
+            st.markdown("### Évolution du risque estimé")
+
+            if "p_default" in df_logs.columns:
+                risk_df = df_logs.copy()
+                risk_df["prediction_index"] = range(1, len(risk_df) + 1)
+
+                fig_risk = go.Figure()
+                fig_risk.add_trace(
+                    go.Scatter(
+                        x=risk_df["prediction_index"],
+                        y=risk_df["p_default"],
+                        mode="lines+markers",
+                        name="Risque",
                     )
                 )
-                fig_psi.add_hline(y=0.10, line_dash="dash", line_color="orange")
-                fig_psi.add_hline(y=0.25, line_dash="dash", line_color="red")
-                fig_psi.update_layout(
-                    yaxis_title="PSI",
-                    xaxis_title="Variable",
+                fig_risk.update_layout(
+                    xaxis_title="Prédiction",
+                    yaxis_title="Probabilité de défaut",
                     height=350,
                 )
-                st.plotly_chart(fig_psi, use_container_width=True)
+                st.plotly_chart(fig_risk, use_container_width=True)
+            else:
+                st.info("Aucune colonne `p_default` dans les logs.")
 
+            st.divider()
+
+            # ============================
+            # Latence
+            # ============================
+            st.markdown("### Latence des calculs")
+
+            if "latency_ms" in df_logs.columns:
+                latency_df = df_logs.copy()
+                latency_df["prediction_index"] = range(1, len(latency_df) + 1)
+
+                fig_latency = go.Figure()
+                fig_latency.add_trace(
+                    go.Scatter(
+                        x=latency_df["prediction_index"],
+                        y=latency_df["latency_ms"],
+                        mode="lines+markers",
+                        name="Latence (ms)",
+                    )
+                )
+                fig_latency.update_layout(
+                    xaxis_title="Prédiction",
+                    yaxis_title="Latence (ms)",
+                    height=350,
+                )
+                st.plotly_chart(fig_latency, use_container_width=True)
+            else:
+                st.info("Aucune colonne `latency_ms` dans les logs.")
+
+            with st.expander("Voir les logs (50 derniers)"):
+                st.dataframe(df_logs.tail(50), use_container_width=True)
+                
 # -------------------- TAB: ABOUT --------------------
 with tab_about:
     st.subheader("Explications")

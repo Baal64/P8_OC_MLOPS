@@ -89,6 +89,7 @@ def score_one_client(
     features: dict,
     threshold: float,
     default_class: int | str = 1,
+    session_id: str | None = None,
     log: bool = True,
 ) -> dict:
     """
@@ -114,6 +115,7 @@ def score_one_client(
         _log_event(
             {
                 "ts": datetime.now(timezone.utc).isoformat(),
+                "session_id": session_id,
                 "mode": "single",
                 "threshold": float(threshold),
                 "p_default": p_default,
