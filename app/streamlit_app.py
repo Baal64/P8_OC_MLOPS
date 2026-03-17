@@ -880,54 +880,36 @@ with tab_monitoring:
         else:
             df_logs = pd.DataFrame(rows)
 
-            # Typage minimal utile
             if "ts" in df_logs.columns:
                 df_logs["ts"] = pd.to_datetime(df_logs["ts"], errors="coerce")
 
-            # ============================
-            # KPI principaux
-            # ============================
-            st.markdown("### Indicateurs clés")
+            # =========================================================
+            # 1) SUIVI D'USAGE
+            # =========================================================
+            st.markdown("## Suivi d’usage")
+            st.caption("Cette section permet de suivre l’activité de l’application.")
 
-            k1, k2, k3, k4 = st.columns(4)
+            u1, u2 = st.columns(2)
 
-            with k1:
-                st.metric("Décisions calculées", len(df_logs))
+            with u1:
+                st.metric("Nombre total de décisions", len(df_logs))
 
-            with k2:
+            with u2:
                 if "session_id" in df_logs.columns:
                     st.metric("Nombre de sessions", df_logs["session_id"].nunique())
                 else:
                     st.metric("Nombre de sessions", "N/A")
 
-            with k3:
-                if "p_default" in df_logs.columns:
-                    st.metric("Risque moyen", f"{df_logs['p_default'].mean():.2%}")
-                else:
-                    st.metric("Risque moyen", "N/A")
+            usage_left, usage_right = st.columns(2)
 
-            with k4:
-                if "latency_ms" in df_logs.columns:
-                    st.metric("Latence moyenne", f"{df_logs['latency_ms'].mean():.1f} ms")
-                else:
-                    st.metric("Latence moyenne", "N/A")
-
-            st.divider()
-
-            # ============================
-            # Activité par session
-            # ============================
-            left, right = st.columns(2)
-
-            with left:
+            with usage_left:
                 st.markdown("### Activité par session")
 
                 if "session_id" in df_logs.columns:
                     session_counts = df_logs["session_id"].value_counts()
-
                     st.bar_chart(session_counts)
 
-                    with st.expander("Détail activité par session"):
+                    with st.expander("Détail des sessions"):
                         st.dataframe(
                             session_counts.rename_axis("session_id")
                             .reset_index(name="nb_decisions"),
@@ -936,104 +918,62 @@ with tab_monitoring:
                 else:
                     st.info("Aucun identifiant de session disponible dans les logs.")
 
-            # ============================
-            # Répartition des décisions
-            # ============================
-            with right:
-                st.markdown("### Répartition des décisions")
+            with usage_right:
+                st.markdown("### Activité dans le temps")
 
-                if "decision" in df_logs.columns:
-                    decision_counts = df_logs["decision"].value_counts()
+                if "ts" in df_logs.columns and df_logs["ts"].notna().any():
+                    activity_df = (
+                        df_logs.dropna(subset=["ts"])
+                        .set_index("ts")
+                        .resample("1min")
+                        .size()
+                        .rename("nb_decisions")
+                        .reset_index()
+                    )
 
-                    fig_decision = go.Figure(
-                        data=[
-                            go.Pie(
-                                labels=decision_counts.index,
-                                values=decision_counts.values,
-                                hole=0.4,
+                    if not activity_df.empty:
+                        fig_activity = go.Figure()
+                        fig_activity.add_trace(
+                            go.Scatter(
+                                x=activity_df["ts"],
+                                y=activity_df["nb_decisions"],
+                                mode="lines+markers",
+                                name="Décisions",
                             )
-                        ]
-                    )
-                    fig_decision.update_layout(height=350)
-                    st.plotly_chart(fig_decision, use_container_width=True)
-                else:
-                    st.info("Aucune colonne `decision` dans les logs.")
-
-            st.divider()
-
-            # ============================
-            # Activité dans le temps
-            # ============================
-            st.markdown("### Activité dans le temps")
-
-            if "ts" in df_logs.columns and df_logs["ts"].notna().any():
-                activity_df = (
-                    df_logs.dropna(subset=["ts"])
-                    .set_index("ts")
-                    .resample("1min")
-                    .size()
-                    .rename("nb_decisions")
-                    .reset_index()
-                )
-
-                if not activity_df.empty:
-                    fig_activity = go.Figure()
-                    fig_activity.add_trace(
-                        go.Scatter(
-                            x=activity_df["ts"],
-                            y=activity_df["nb_decisions"],
-                            mode="lines+markers",
-                            name="Décisions",
                         )
-                    )
-                    fig_activity.update_layout(
-                        xaxis_title="Temps",
-                        yaxis_title="Nombre de décisions",
-                        height=350,
-                    )
-                    st.plotly_chart(fig_activity, use_container_width=True)
+                        fig_activity.update_layout(
+                            xaxis_title="Temps",
+                            yaxis_title="Nombre de décisions",
+                            height=350,
+                        )
+                        st.plotly_chart(fig_activity, use_container_width=True)
+                    else:
+                        st.info("Pas assez de données temporelles pour afficher l’activité.")
                 else:
-                    st.info("Pas assez de données temporelles pour afficher l'activité.")
-            else:
-                st.info("Aucun timestamp exploitable dans les logs.")
+                    st.info("Aucun timestamp exploitable dans les logs.")
 
             st.divider()
 
-            # ============================
-            # Evolution du risque
-            # ============================
-            st.markdown("### Évolution du risque estimé")
-
-            if "p_default" in df_logs.columns:
-                risk_df = df_logs.copy()
-                risk_df["prediction_index"] = range(1, len(risk_df) + 1)
-
-                fig_risk = go.Figure()
-                fig_risk.add_trace(
-                    go.Scatter(
-                        x=risk_df["prediction_index"],
-                        y=risk_df["p_default"],
-                        mode="lines+markers",
-                        name="Risque",
-                    )
-                )
-                fig_risk.update_layout(
-                    xaxis_title="Prédiction",
-                    yaxis_title="Probabilité de défaut",
-                    height=350,
-                )
-                st.plotly_chart(fig_risk, use_container_width=True)
-            else:
-                st.info("Aucune colonne `p_default` dans les logs.")
-
-            st.divider()
-
-            # ============================
-            # Latence
-            # ============================
-            st.markdown("### Latence des calculs")
+            # =========================================================
+            # 2) PERFORMANCE TECHNIQUE
+            # =========================================================
+            st.markdown("## Performance technique")
+            st.caption("Cette section permet de suivre le comportement technique de l’application.")
 
             if "latency_ms" in df_logs.columns:
+                p1, p2, p3 = st.columns(3)
+
+                with p1:
+                    st.metric("Latence moyenne", f"{df_logs['latency_ms'].mean():.1f} ms")
+
+                with p2:
+                    st.metric("Latence min", f"{df_logs['latency_ms'].min():.1f} ms")
+
+                with p3:
+                    st.metric("Latence max", f"{df_logs['latency_ms'].max():.1f} ms")
+
+                st.markdown("### Évolution de la latence")
+
                 latency_df = df_logs.copy()
                 latency_df["prediction_index"] = range(1, len(latency_df) + 1)
 
@@ -1053,9 +993,79 @@ with tab_monitoring:
                 )
                 st.plotly_chart(fig_latency, use_container_width=True)
             else:
-                st.info("Aucune colonne `latency_ms` dans les logs.")
+                st.info("Aucune donnée de latence disponible.")
 
-            with st.expander("Voir les logs (50 derniers)"):
+            st.divider()
+
+            # =========================================================
+            # 3) INDICATEURS METIER
+            # =========================================================
+            st.markdown("## Indicateurs métier")
+            st.caption("Cette section permet de suivre le comportement du système de décision.")
+
+            m1, m2 = st.columns(2)
+
+            with m1:
+                if "p_default" in df_logs.columns:
+                    st.metric("Risque moyen", f"{df_logs['p_default'].mean():.2%}")
+                else:
+                    st.metric("Risque moyen", "N/A")
+
+            with m2:
+                if "decision" in df_logs.columns:
+                    refusal_rate = (df_logs["decision"] == "REFUS").mean()
+                    st.metric("Taux de refus", f"{refusal_rate:.2%}")
+                else:
+                    st.metric("Taux de refus", "N/A")
+
+            business_left, business_right = st.columns(2)
+
+            with business_left:
+                st.markdown("### Répartition des décisions")
+
+                if "decision" in df_logs.columns:
+                    decision_counts = df_logs["decision"].value_counts()
+
+                    fig_decision = go.Figure(
+                        data=[
+                            go.Pie(
+                                labels=decision_counts.index,
+                                values=decision_counts.values,
+                                hole=0.4,
+                            )
+                        ]
+                    )
+                    fig_decision.update_layout(height=350)
+                    st.plotly_chart(fig_decision, use_container_width=True)
+                else:
+                    st.info("Aucune colonne `decision` dans les logs.")
+
+            with business_right:
+                st.markdown("### Évolution du risque estimé")
+
+                if "p_default" in df_logs.columns:
+                    risk_df = df_logs.copy()
+                    risk_df["prediction_index"] = range(1, len(risk_df) + 1)
+
+                    fig_risk = go.Figure()
+                    fig_risk.add_trace(
+                        go.Scatter(
+                            x=risk_df["prediction_index"],
+                            y=risk_df["p_default"],
+                            mode="lines+markers",
+                            name="Risque",
+                        )
+                    )
+                    fig_risk.update_layout(
+                        xaxis_title="Prédiction",
+                        yaxis_title="Probabilité de défaut",
+                        height=350,
+                    )
+                    st.plotly_chart(fig_risk, use_container_width=True)
+                else:
+                    st.info("Aucune colonne `p_default` dans les logs.")
+
+            with st.expander("Voir les logs détaillés (50 derniers)"):
                 st.dataframe(df_logs.tail(50), use_container_width=True)
 
 # -------------------- TAB: ABOUT --------------------
