@@ -756,31 +756,26 @@ with tab_decision:
             client_vals = df[actionable_vars].iloc[0]
             mean_vals = df_ref_no_id[actionable_vars].mean()
 
-            fig_action = go.Figure()
-            fig_action.add_trace(
-                go.Bar(
-                    x=actionable_vars,
-                    y=client_vals.values,
-                    name="Client",
-                    marker_color="#0b1f2a",
-                )
-            )
-            fig_action.add_trace(
-                go.Bar(
-                    x=actionable_vars,
-                    y=mean_vals.values,
-                    name="Référence moyenne",
-                    marker_color="#f5a623",
-                )
+            relative_vals = client_vals / mean_vals.replace(0, 1)
+
+            fig = go.Figure()
+
+            fig.add_trace(go.Bar(
+                x=actionable_vars,
+                y=relative_vals.values,
+                name="Client (relatif à la moyenne)"
+            ))
+
+            # ligne de référence à 1
+            fig.add_hline(
+                y=1,
+                line_dash="dash",
+                line_color="red",
+                annotation_text="Moyenne",
+                annotation_position="top left"
             )
 
-            fig_action.update_layout(
-                barmode="group",
-                yaxis_title="Valeur",
-                height=350,
-            )
-
-            st.plotly_chart(fig_action, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True)
 
             st.caption(
                 "Ce graphique met en évidence des variables potentiellement améliorables "
@@ -793,7 +788,7 @@ with tab_decision:
         # ============================
         # Graphique 3 : variables pénalisantes
         # ============================
-        st.markdown("### 3. Principaux écarts défavorables du profil")
+        st.markdown("### 3. Principaux facteurs pénalisants du profil")
 
         explain_vars = [
             "revenu_mensuel",
@@ -802,46 +797,45 @@ with tab_decision:
             "annees_dans_l_entreprise",
             "nb_formations_suivies",
         ]
-        explain_vars = [
-            c for c in explain_vars if c in df.columns and c in df_ref_no_id.columns
-        ]
+        explain_vars = [c for c in explain_vars if c in df.columns and c in df_ref_no_id.columns]
 
         if explain_vars:
             client_vals = df[explain_vars].iloc[0]
             mean_vals = df_ref_no_id[explain_vars].mean()
 
-            # Écart relatif à la moyenne
-            relative_gap = (client_vals - mean_vals) / mean_vals.replace(0, 1)
+            penalty_scores = {}
 
-            # On réoriente certaines variables pour que "plus haut = plus défavorable"
-            # revenu, expérience, formations : moins que la moyenne = défavorable
-            # distance : plus que la moyenne = défavorable
-            oriented_gap = relative_gap.copy()
-            for col in [
-                "revenu_mensuel",
-                "annee_experience_totale",
-                "nb_formations_suivies",
-            ]:
-                if col in oriented_gap.index:
-                    oriented_gap[col] = -oriented_gap[col]
+            for col in explain_vars:
+                client_val = client_vals[col]
+                mean_val = mean_vals[col] if mean_vals[col] != 0 else 1
 
-            # distance_domicile_travail reste telle quelle
-            # age peut être laissé neutre/interprétatif
+                if col in ["revenu_mensuel", "annee_experience_totale", "annees_dans_l_entreprise", "nb_formations_suivies"]:
+                    # plus faible que la moyenne = défavorable
+                    penalty = max(0, (mean_val - client_val) / mean_val)
 
-            oriented_gap = oriented_gap.sort_values(ascending=False)
+                elif col == "distance_domicile_travail":
+                    # plus élevé que la moyenne = défavorable
+                    penalty = max(0, (client_val - mean_val) / mean_val)
+
+                else:
+                    penalty = 0
+
+                penalty_scores[col] = penalty
+
+            penalty_series = pd.Series(penalty_scores).sort_values(ascending=False).head(4)
 
             fig_explain = go.Figure()
             fig_explain.add_trace(
                 go.Bar(
-                    x=oriented_gap.values,
-                    y=oriented_gap.index,
+                    x=penalty_series.values,
+                    y=penalty_series.index,
                     orientation="h",
                     marker_color="#d0021b",
                 )
             )
 
             fig_explain.update_layout(
-                xaxis_title="Écart défavorable relatif à la moyenne",
+                xaxis_title="Écart défavorable relatif",
                 yaxis_title="Variable",
                 height=400,
             )
@@ -849,8 +843,7 @@ with tab_decision:
             st.plotly_chart(fig_explain, use_container_width=True)
 
             st.caption(
-                "Les graphiques comparent le profil du client à une population de référence. "
-                "Ils permettent d'identifier les variables pouvant influencer le score de risque."
+                "Plus la barre est élevée, plus la variable pénalise le profil par rapport à la population de référence."
             )
         else:
             st.info("Variables explicatives indisponibles.")
