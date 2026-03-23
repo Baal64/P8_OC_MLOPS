@@ -74,16 +74,19 @@ La synchronisation est automatisée :
 
 ---
 
-## 🚀 Avancement du projet
+## Accès au modèle
 
-- [x] Initialisation du dépôt et de la structure
-- [ ] Intégration du modèle de Machine Learning
-- [ ] Création de l’API de prédiction
-- [ ] Mise en place des tests automatisés
-- [ ] Conteneurisation avec Docker
-- [ ] Pipeline CI/CD
-- [ ] Monitoring et analyse de dérive
-- [ ] Analyse et optimisation des performances
+Le modèle est accessible via l'application Streamlit.
+
+Dans un contexte industriel, une API REST pourrait être utilisée, mais dans ce projet l'inférence est directement intégrée à l'interface.
+
+## Monitoring
+
+Les prédictions sont enregistrées dans un fichier `predictions.jsonl`, permettant le suivi des performances et l'analyse du data drift.
+
+## Data Drift
+
+Une analyse du data drift est réalisée dans un notebook dédié, avec utilisation de la bibliothèque Evidently.
 
 ---
 

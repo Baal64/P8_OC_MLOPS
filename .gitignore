@@ -56,3 +56,8 @@ data/tmp/
 
 logs/*.log
 logs/*.jsonl
+
+.venvsource/
+reports/
+__pycache__/
+.ipynb_checkpoints/

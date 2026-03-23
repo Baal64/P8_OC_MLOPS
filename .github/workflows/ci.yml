@@ -1,0 +1,18 @@
+name: CI
+
+on:
+    push:
+        branches: [main]
+
+jobs:
+    test:
+        runs-on: ubuntu-latest
+
+        steps:
+            - uses: actions/checkout@v3
+
+            - name: Install dependencies
+              run: pip install -r requirements.txt
+
+            - name: Basic check
+              run: echo "CI OK"
