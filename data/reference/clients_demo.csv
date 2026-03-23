@@ -20,3 +20,8 @@ C019,24,0,1400,Célibataire,13,Assistant,2,2,1,0,2,2,1,2,2,1,2,1,1,0,1,28,2,Gest
 C020,26,1,1500,Divorcé(e),62,Technicien,2,3,1,1,2,2,1,2,2,2,2,1,2,0,1,35,2,Technique,Fréquent,1,1
 C021,29,0,1600,Célibataire,80,Agent administratif,3,4,2,1,2,2,1,2,2,2,2,1,2,0,1,40,2,Administration,Fréquent,1,1
 C022,32,1,1800,Marié(e),33,Ouvrier,3,5,2,1,2,2,1,2,2,2,2,1,3,0,1,45,1,Technique,Fréquent,2,2
+C200,42,0,4200,Married,75,Manager,3,18,10,5,3,4,3,3,3,3,4,0,10,2,4,5,5,Informatique,Travel_Rarely,2,3
+C201,23,0,1100,Single,33,Technician,1,1,0,0,2,2,1,2,2,2,2,1,2,0,0,45,3,Commerce,Travel_Frequently,0,0
+C202,31,1,2100,Married,64,Sales Executive,2,6,2,2,3,3,2,3,3,3,3,0,5,1,1,18,3,Marketing,Travel_Rarely,1,1
+C203,50,0,1900,Married,92,Manager,4,25,1,1,3,3,3,3,3,2,3,1,3,0,0,60,5,Management,Travel_Frequently,0,0
+C250,25,1,1800,Célibataire,70,Employé,1,3,1,1,2,2,2,2,2,2,2,1,0.5,0,1,15,1,Commerce,Rare,1,1
